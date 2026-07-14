@@ -1,0 +1,7 @@
+<resources>
+    <string name="app_name">HuAHua Device Agent</string>
+    <string name="agent_status_ready">Device Agent ready</string>
+    <string name="agent_status_no_host">No AI Host connected</string>
+    <string name="agent_lease_available">available</string>
+    <string name="agent_status_lease">Lease: %1$s</string>
+</resources>
