@@ -26,5 +26,8 @@ android {
 
 dependencies {
     api(project(":contracts"))
+    implementation("dev.rikka.shizuku:api:13.1.5")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.7.3")
     testImplementation("junit:junit:4.13.2")
 }
