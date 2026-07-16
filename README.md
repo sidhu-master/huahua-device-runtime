@@ -25,5 +25,7 @@ privileged Android execution are deliberately deferred until their security
 design is complete.
 
 HuAHua consumes `:android-runtime` through a Gradle composite build during
-local development. Its `HuahuaDeviceRuntimeAdapter` is the only current bridge
-from the consumer app's existing self-device service to this shared contract.
+local development. `AutoGLMShizukuService` remains HuAHua's foreground/UI host,
+while its fixed Android actions and the two-phase raw PNG capture delegate to
+`ShizukuAndroidDeviceRuntime`. Raw shell remains internal to the runtime; this
+migration introduces neither a LAN endpoint nor a second product app.
