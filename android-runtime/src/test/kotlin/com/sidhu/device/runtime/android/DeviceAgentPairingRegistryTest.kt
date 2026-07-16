@@ -30,6 +30,7 @@ class DeviceAgentPairingRegistryTest {
         assertEquals("host-a", grant.hostId)
         assertTrue(registry.authorize("host-a", grant.accessToken))
         assertFalse(registry.authorize("host-b", grant.accessToken))
+        assertEquals(grant, registry.approvedGrant(request.requestId, "host-a"))
     }
 
     @Test

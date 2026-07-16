@@ -18,6 +18,7 @@ class DeviceAgentPairingRegistry(
     private val invitations = mutableMapOf<String, Invitation>()
     private val requests = mutableMapOf<String, PairingRequest>()
     private val grants = mutableMapOf<String, PairingGrant>()
+    private val approvedRequests = mutableMapOf<String, ApprovedRequest>()
 
     @Synchronized
     fun createInvitation(
@@ -84,7 +85,10 @@ class DeviceAgentPairingRegistry(
             hostId = request.hostId,
             accessToken = accessToken,
             expiresAtMs = nowMs() + ttlMs,
-        ).also { grants[it.accessToken] = it }
+        ).also { grant ->
+            grants[grant.accessToken] = grant
+            approvedRequests[requestId] = ApprovedRequest(request.hostId, grant)
+        }
     }
 
     @Synchronized
@@ -98,11 +102,18 @@ class DeviceAgentPairingRegistry(
     }
 
     @Synchronized
+    fun approvedGrant(requestId: String, hostId: String): PairingGrant? {
+        cleanupExpired()
+        return approvedRequests[requestId]?.takeIf { it.hostId == hostId }?.grant
+    }
+
+    @Synchronized
     private fun cleanupExpired() {
         val now = nowMs()
         invitations.entries.removeAll { (_, invitation) -> invitation.expiresAtMs <= now }
         requests.entries.removeAll { (_, request) -> request.expiresAtMs <= now }
         grants.entries.removeAll { (_, grant) -> grant.expiresAtMs <= now }
+        approvedRequests.entries.removeAll { (_, approved) -> approved.grant.expiresAtMs <= now }
     }
 
     private fun tokensMatch(expected: String, actual: String): Boolean = MessageDigest.isEqual(
@@ -115,6 +126,8 @@ class DeviceAgentPairingRegistry(
         val expiresAtMs: Long,
         var used: Boolean = false,
     )
+
+    private data class ApprovedRequest(val hostId: String, val grant: PairingGrant)
 
     data class PairingRequest(
         val requestId: String,

@@ -1,0 +1,13 @@
+{
+  "name": "@huahua/mcp",
+  "version": "0.1.0",
+  "description": "Local LAN MCP bootstrap for a HuAHua device agent",
+  "type": "module",
+  "bin": { "huahua-mcp": "dist/cli.js" },
+  "exports": "./dist/index.js",
+  "files": ["dist"],
+  "scripts": { "build": "tsc -p tsconfig.json", "test": "npm run build && node --test test/**/*.test.mjs" },
+  "dependencies": { "@modelcontextprotocol/sdk": "^1.29.0" },
+  "devDependencies": { "@types/node": "^22.0.0", "typescript": "^5.8.0" },
+  "engines": { "node": ">=20" }
+}
