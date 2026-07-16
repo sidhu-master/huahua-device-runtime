@@ -1,6 +1,10 @@
 package com.sidhu.device.runtime.android.shizuku
 
 import com.sidhu.device.runtime.android.AndroidScreenCaptureFailureCode
+import com.sidhu.device.runtime.android.AndroidScreenCapturePreparation
+import com.sidhu.device.runtime.android.AndroidScreenCaptureResult
+import com.sidhu.device.contracts.DeviceCommand
+import com.sidhu.device.contracts.DeviceReceipt
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -51,6 +55,150 @@ class ShizukuAndroidDeviceRuntimeTest {
         assertEquals(1_800L, requestedTimeoutMs)
         assertTrue(fakeShell.commands.isEmpty())
     }
+
+    @Test
+    fun tapFallsBackToShortSwipeWhenPrimaryTapFails() = runTest {
+        val shell = FakeShellExecutor(
+            responses = mutableListOf(
+                RuntimeShellResult(false, "input failed"),
+                RuntimeShellResult(true, ""),
+            ),
+        )
+
+        val receipt = runtimeFor(shell).execute(DeviceCommand.Tap(12, 24))
+
+        assertEquals(DeviceReceipt.Outcome.SUCCEEDED, receipt.outcome)
+        assertEquals(listOf("input tap 12 24", "input swipe 12 24 12 24 120"), shell.commands)
+    }
+
+    @Test
+    fun tapDoesNotFallbackWhenInputInjectionIsDenied() = runTest {
+        val shell = FakeShellExecutor(
+            responses = mutableListOf(
+                RuntimeShellResult(false, "injecting input events requires INJECT_EVENTS"),
+            ),
+        )
+
+        val receipt = runtimeFor(shell).execute(DeviceCommand.Tap(12, 24))
+
+        assertEquals(DeviceReceipt.Outcome.FAILED, receipt.outcome)
+        assertEquals(listOf("input tap 12 24"), shell.commands)
+        assertEquals("true", receipt.transientFacts["input_injection_permission_denied"])
+    }
+
+    @Test
+    fun swipeClampsDurationToAndroidSafeRange() = runTest {
+        val shell = FakeShellExecutor(responses = mutableListOf(RuntimeShellResult(true, "")))
+
+        val receipt = runtimeFor(shell).execute(DeviceCommand.Swipe(1, 2, 3, 4, durationMs = 9_000L))
+
+        assertEquals(DeviceReceipt.Outcome.SUCCEEDED, receipt.outcome)
+        assertEquals("input swipe 1 2 3 4 3000", shell.commands.single())
+    }
+
+    @Test
+    fun launchRejectsUnsafePackageNameWithoutOpeningShell() = runTest {
+        val shell = FakeShellExecutor()
+
+        val receipt = runtimeFor(shell).execute(DeviceCommand.LaunchApp("com.example; rm -rf /"))
+
+        assertEquals(DeviceReceipt.Outcome.FAILED, receipt.outcome)
+        assertTrue(shell.commands.isEmpty())
+    }
+
+    @Test
+    fun screenshotUsesSecondScreencapCommandAfterFirstFailure() = runTest {
+        val shell = FakeShellExecutor(
+            binaryResponses = mutableListOf(
+                RuntimeBinaryResult(false, stderr = "not found"),
+                RuntimeBinaryResult(true, stdout = byteArrayOf(1, 2, 3)),
+            ),
+        )
+        val runtime = runtimeFor(shell)
+        val preparation = runtime.prepareScreenshot()
+
+        assertEquals(AndroidScreenCapturePreparation.Ready, preparation)
+        assertTrue(shell.binaryCommands.isEmpty())
+
+        val result = runtime.capturePreparedScreenshot(
+            preparation as AndroidScreenCapturePreparation.Ready,
+        )
+
+        assertEquals(byteArrayOf(1, 2, 3).toList(), (result as AndroidScreenCaptureResult.Captured).pngBytes.toList())
+        assertEquals(
+            listOf(listOf("/system/bin/screencap", "-p"), listOf("screencap", "-p")),
+            shell.binaryCommands,
+        )
+    }
+
+    @Test
+    fun screenshotFallbackSharesOneTimeoutBudget() = runTest {
+        var now = 0L
+        val shell = FakeShellExecutor(
+            binaryResponses = mutableListOf(
+                RuntimeBinaryResult(false, stderr = "first failed"),
+                RuntimeBinaryResult(true, stdout = byteArrayOf(7)),
+            ),
+        ).also { fake ->
+            fake.afterBinaryExecution = { now += 400L }
+        }
+        val runtime = runtimeFor(shell, nowMs = { now })
+        val preparation = runtime.prepareScreenshot()
+
+        runtime.capturePreparedScreenshot(
+            preparation as AndroidScreenCapturePreparation.Ready,
+            timeoutMs = 1_000L,
+        )
+
+        assertEquals(listOf(1_000L, 600L), shell.binaryTimeouts)
+    }
+
+    @Test
+    fun screenshotDoesNotStartFallbackAfterBudgetIsExhausted() = runTest {
+        var now = 0L
+        val shell = FakeShellExecutor(
+            binaryResponses = mutableListOf(
+                RuntimeBinaryResult(false, stderr = "first failed"),
+                RuntimeBinaryResult(true, stdout = byteArrayOf(8)),
+            ),
+        ).also { fake ->
+            fake.afterBinaryExecution = { now += 1_000L }
+        }
+        val runtime = runtimeFor(shell, nowMs = { now })
+        val preparation = runtime.prepareScreenshot()
+
+        val result = runtime.capturePreparedScreenshot(
+            preparation as AndroidScreenCapturePreparation.Ready,
+            timeoutMs = 1_000L,
+        )
+
+        assertEquals(
+            AndroidScreenCaptureFailureCode.TIMEOUT,
+            (result as AndroidScreenCaptureResult.Failed).code,
+        )
+        assertEquals(listOf(listOf("/system/bin/screencap", "-p")), shell.binaryCommands)
+    }
+
+    @Test
+    fun oneShotScreenshotSharesItsBudgetWithPreparation() = runTest {
+        var now = 0L
+        val shell = FakeShellExecutor(
+            binaryResponses = mutableListOf(
+                RuntimeBinaryResult(true, stdout = byteArrayOf(9)),
+            ),
+        ).also { fake ->
+            fake.afterPreparation = { now += 250L }
+        }
+
+        runtimeFor(shell, nowMs = { now }).captureScreenshot(timeoutMs = 1_000L)
+
+        assertEquals(listOf(750L), shell.binaryTimeouts)
+    }
+
+    private fun runtimeFor(
+        shell: FakeShellExecutor,
+        nowMs: () -> Long = { 0L },
+    ): ShizukuAndroidDeviceRuntime = ShizukuAndroidDeviceRuntime(shell, nowMs)
 }
 
 private class FakeShellExecutor(
