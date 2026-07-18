@@ -165,7 +165,7 @@ internal class ShizukuShellExecutor : RestrictedShellExecutor {
                 val stdout = async(Dispatchers.IO) { process.inputStream.readBytes() }
                 val stderr = async(Dispatchers.IO) { process.errorStream.readBytes() }
                 try {
-                    if (!process.waitFor(timeoutMs, TimeUnit.MILLISECONDS)) {
+                    if (!waitForProcessExit(process, timeoutMs)) {
                         process.destroyForcibly()
                         stdout.cancel()
                         stderr.cancel()
@@ -233,6 +233,19 @@ internal class ShizukuShellExecutor : RestrictedShellExecutor {
             ).apply { isAccessible = true }
         }.getOrNull()
     }
+}
+
+internal suspend fun waitForProcessExit(
+    process: Process,
+    timeoutMs: Long,
+    pollMs: Long = 20L,
+): Boolean {
+    val deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMs.coerceAtLeast(0L))
+    while (System.nanoTime() < deadline) {
+        if (runCatching { process.exitValue() }.isSuccess) return true
+        delay(pollMs.coerceAtLeast(1L))
+    }
+    return runCatching { process.exitValue() }.isSuccess
 }
 
 private data class ProcessExecution(
