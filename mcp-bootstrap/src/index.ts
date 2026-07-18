@@ -44,3 +44,5 @@ function commandContent(response: DeviceCommandResponse) {
 
 export { HuahuaLanClient } from "./client.js";
 export { parseConnectionCard } from "./connection-card.js";
+export { HostIdentityStore } from "./host-identity-store.js";
+export { DeviceProfileStore } from "./device-profile-store.js";

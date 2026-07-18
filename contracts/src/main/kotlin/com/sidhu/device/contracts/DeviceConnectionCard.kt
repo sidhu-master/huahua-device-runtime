@@ -14,6 +14,8 @@ data class DeviceConnectionCard(
     val bootstrapToken: String,
     val displayName: String,
     val expiresAtMs: Long,
+    val deviceId: String? = null,
+    val discoveryServiceType: String? = null,
 ) {
     init {
         require(connectionId.isNotBlank()) { "connectionId is required" }
@@ -23,23 +25,40 @@ data class DeviceConnectionCard(
         val endpointUri = runCatching { URI(endpoint) }.getOrElse { throw IllegalArgumentException("invalid endpoint", it) }
         require(endpointUri.scheme == "http" || endpointUri.scheme == "https") { "endpoint must use http or https" }
         require(!endpointUri.host.isNullOrBlank()) { "endpoint host is required" }
+        require((deviceId == null) == (discoveryServiceType == null)) {
+            "deviceId and discoveryServiceType must be provided together"
+        }
+        if (deviceId != null) {
+            require(deviceId.isNotBlank()) { "deviceId is required" }
+            require(discoveryServiceType == DeviceProtocol.TRUSTED_DISCOVERY_SERVICE_TYPE) {
+                "unsupported discovery service type"
+            }
+        }
     }
 
     fun isUsableAt(nowMs: Long = System.currentTimeMillis()): Boolean = nowMs < expiresAtMs
+    val supportsTrustedReconnect: Boolean get() = deviceId != null && discoveryServiceType != null
 
     fun serialize(): String = buildString {
-        append("huahua://device-agent/v1?")
+        append("huahua://device-agent/")
+        append(if (supportsTrustedReconnect) DeviceProtocol.VERSION else DeviceProtocol.LEGACY_VERSION)
+        append('?')
         append("connection_id=").append(encode(connectionId))
         append("&endpoint=").append(encode(endpoint))
         append("&token=").append(encode(bootstrapToken))
         append("&name=").append(encode(displayName))
         append("&expires_at_ms=").append(expiresAtMs)
+        if (supportsTrustedReconnect) {
+            append("&device_id=").append(encode(requireNotNull(deviceId)))
+            append("&discovery_service_type=").append(encode(requireNotNull(discoveryServiceType)))
+        }
     }
 
     companion object {
         fun parse(serialized: String): DeviceConnectionCard {
             val uri = runCatching { URI(serialized) }.getOrElse { throw IllegalArgumentException("invalid connection card", it) }
-            require(uri.scheme == "huahua" && uri.host == "device-agent" && uri.path == "/v1") {
+            require(uri.scheme == "huahua" && uri.host == "device-agent" &&
+                (uri.path == "/${DeviceProtocol.LEGACY_VERSION}" || uri.path == "/${DeviceProtocol.VERSION}")) {
                 "unsupported connection card"
             }
             val fields = uri.rawQuery.orEmpty()
@@ -50,6 +69,7 @@ data class DeviceConnectionCard(
                     require(separator > 0) { "invalid connection card field" }
                     part.substring(0, separator) to part.substring(separator + 1)
                 }
+            val isV2 = uri.path == "/${DeviceProtocol.VERSION}"
             return DeviceConnectionCard(
                 connectionId = decode(fields.requireValue("connection_id")),
                 endpoint = decode(fields.requireValue("endpoint")),
@@ -57,6 +77,12 @@ data class DeviceConnectionCard(
                 displayName = decode(fields.requireValue("name")),
                 expiresAtMs = fields.requireValue("expires_at_ms").toLongOrNull()
                     ?: throw IllegalArgumentException("invalid expires_at_ms"),
+                deviceId = fields["device_id"]?.let(::decode).also {
+                    if (isV2) require(it != null) { "missing device_id" }
+                },
+                discoveryServiceType = fields["discovery_service_type"]?.let(::decode).also {
+                    if (isV2) require(it != null) { "missing discovery_service_type" }
+                },
             )
         }
 

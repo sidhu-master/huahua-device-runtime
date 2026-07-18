@@ -7,5 +7,7 @@ package com.sidhu.device.contracts
  * pairing or command. Version changes are explicit compatibility boundaries.
  */
 object DeviceProtocol {
-    const val VERSION = "v1"
+    const val VERSION = "v2"
+    const val LEGACY_VERSION = "v1"
+    const val TRUSTED_DISCOVERY_SERVICE_TYPE = "_huahua-device-agent._tcp."
 }
