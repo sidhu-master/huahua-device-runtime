@@ -5,16 +5,17 @@
 Local-network-first runtime for letting a user's AI safely control a device on
 which the HuAHua app is installed.
 
-This repository intentionally contains no model provider integration, cloud
-control plane, user test assets, or API keys. It is split into portable
-protocol contracts, platform runtimes, and thin platform Agent Apps.
+This repository contains the device-runtime layer only: portable protocol
+contracts, platform runtimes, and thin platform Agent Apps. Model-provider
+integration, cloud control-plane services, user test assets, and API keys are
+outside this repository's scope.
 
 ## Modules
 
 - `contracts`: Kotlin/JVM portable device command and receipt contract.
 - `android-runtime`: Android implementation boundary for self-device control.
-- `samples/android-pairing-shell`: non-production Android sample for protocol
-  experiments. It is not a second HuAHua app and users must not install it.
+- `samples/android-pairing-shell`: reference Android integration app for
+  protocol testing and runtime contributors; not part of HuAHua distribution.
 - `mcp-bootstrap`: Node.js MCP bridge used by an AI host on the same LAN.
 
 ## Platform scope
@@ -25,10 +26,10 @@ dependencies; iOS and desktop runtimes can implement the same protocol.
 
 ## Architecture
 
-HuAHua follows the same separation that makes device tools useful to coding
-agents: the user's AI remains the **brain**; this runtime supplies only the
-phone's **eyes, hands, trust boundary, and evidence**. It does not decide what
-to tap, infer task completion, or call any model provider.
+The architecture separates AI task policy from device I/O. The user's AI
+interprets the task, selects tool calls, and evaluates completion. This runtime
+provides device observation, bounded actions, authorization, and execution
+evidence; it does not contain task-planning logic or model-provider calls.
 
 ```mermaid
 flowchart LR
@@ -74,11 +75,10 @@ coordinate or a cached screenshot:
 5. The AI uses the receipt and fresh observation to decide whether to continue
    or finish. A successful tap alone is never treated as task completion.
 
-This mirrors the useful part of `agent-device`'s model: semantic screen state
-and fresh evidence keep an AI grounded, while the agent itself retains control
-of planning and verification. HuAHua differs in that the physical Android
-phone runs the agent service locally on the same LAN; no USB debugging bridge
-or desktop companion application is required for normal use.
+Semantic screen state and fresh evidence keep the AI grounded on the physical
+device while planning and verification remain on the AI host. The Android phone
+runs the device service on the local network; normal operation does not require
+a USB debugging bridge or a desktop companion application.
 
 ## AI host connection
 
@@ -87,9 +87,9 @@ HuAHua has two equivalent sharing entries for a phone's first AI-host pairing:
 - **Copy for AI** is the reliable entry. It copies a self-describing text card
   containing the setup documentation URL, the MCP package name, and a
   short-lived connection card.
-- **QR code** encodes the same text card for a person to scan and forward. An
-  AI may be able to read a QR image, but QR image recognition is not a protocol
-  requirement; users should paste the decoded text into an AI when possible.
+- **QR code** encodes the same text card for scan-and-forward workflows. The
+  decoded text card is the normative setup input; QR recognition is a
+  convenience transport.
 
 The text card tells a new AI what it is receiving before it sees the private
 connection card. It points to the public setup guide in
@@ -98,11 +98,10 @@ in a GitHub query parameter, browser URL, issue, commit, or log: it is a
 short-lived pairing secret.
 
 The first pairing requires a one-time approval on the phone. The Node MCP host
-then saves only its local P-256 host key and public device discovery metadata
-under `~/.config/huahua-mcp` with user-only permissions. Future connections
-discover the phone over mDNS and obtain a new short-lived signed session; they
-do not need another QR code or approval unless the user revokes the host,
-clears app data, or uses another computer.
+saves its local P-256 host key and public device-discovery metadata under
+`~/.config/huahua-mcp` with user-only permissions. Subsequent connections use
+mDNS discovery and a newly signed short-lived session. Re-pairing is required
+when the host is revoked, app data is cleared, or a different computer is used.
 
 ### Trust and session protocol
 
@@ -127,18 +126,17 @@ sequenceDiagram
     P-->>H: New short-lived access token
 ```
 
-The connection card is only a bootstrap secret. It is never a long-lived
-credential, and neither the MCP host nor the phone persists a bearer token or
-fixed LAN endpoint. Revoking a host, clearing HuAHua data, or moving to a
-different computer intentionally requires a new first pairing.
+The connection card is an ephemeral bootstrap credential. Neither endpoint
+persists a bearer token or a fixed LAN endpoint. Host revocation, HuAHua data
+clearance, and host migration invalidate the pairing and require re-pairing.
 
 ## Runtime boundary
 
-This repository is the HuAHua Device Agent runtime. It does not host a cloud
-control plane, user test assets, model API keys, raw ADB endpoints, or
-arbitrary shell execution. The LAN MCP bridge is deliberately limited to an
-approved host, fresh observations, and narrow phone actions; it is not a shell
-or an unauthenticated remote-control endpoint.
+This repository implements the HuAHua Device Agent runtime. Its scope excludes
+cloud control-plane services, user test assets, model API keys, raw ADB
+endpoints, and arbitrary command execution. The LAN MCP bridge exposes a
+verified device-operation surface for an approved host, fresh observations, and
+bounded phone actions.
 
 HuAHua consumes `:android-runtime` through a Gradle composite build during
 local development. The HuAHua foreground/UI service owns lifecycle,
@@ -147,7 +145,6 @@ provides fixed Android actions and two-phase raw PNG capture. Its public API is
 limited to typed device commands and screenshot capture; it exposes neither a
 general-purpose command interface nor product UI.
 
-`samples/android-pairing-shell` exists only as a tiny Android integration
-example for runtime contributors. Production users install HuAHua; the HuAHua
-app owns pairing, QR/self-describing setup cards, permissions, LAN service,
-and the execution UI.
+`samples/android-pairing-shell` is a reference integration app for runtime
+contributors. HuAHua is the production application and owns pairing,
+QR/self-describing setup cards, permissions, LAN service, and execution UI.
