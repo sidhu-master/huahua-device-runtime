@@ -14,8 +14,6 @@ outside this repository's scope.
 
 - `contracts`: Kotlin/JVM portable device command and receipt contract.
 - `android-runtime`: Android implementation boundary for self-device control.
-- `samples/android-pairing-shell`: reference Android integration app for
-  protocol testing and runtime contributors; not part of HuAHua distribution.
 - `mcp-bootstrap`: Node.js MCP bridge used by an AI host on the same LAN.
 
 ## Platform scope
@@ -145,6 +143,5 @@ provides fixed Android actions and two-phase raw PNG capture. Its public API is
 limited to typed device commands and screenshot capture; it exposes neither a
 general-purpose command interface nor product UI.
 
-`samples/android-pairing-shell` is a reference integration app for runtime
-contributors. HuAHua is the production application and owns pairing,
-QR/self-describing setup cards, permissions, LAN service, and execution UI.
+HuAHua is the production application and owns pairing, QR/self-describing
+setup cards, permissions, LAN service, and execution UI.

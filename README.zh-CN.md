@@ -11,8 +11,6 @@
 
 - `contracts`：Kotlin/JVM 可移植的设备命令与回执契约。
 - `android-runtime`：Android 自机操控的实现边界。
-- `samples/android-pairing-shell`：用于协议测试和运行时贡献者的 Android 参考集成应用，
-  不属于 HuAHua 的产品发布物。
 - `mcp-bootstrap`：同一局域网内供 AI 主机使用的 Node.js MCP 桥接包。
 
 ## 平台范围
@@ -122,5 +120,4 @@ HuAHua 在本地开发时通过 Gradle composite build 消费 `:android-runtime`
 动作及两阶段原始 PNG 截图。运行时公开 API 仅包含类型受约束的设备命令和截图采集，
 不提供通用命令执行接口或产品 UI。
 
-`samples/android-pairing-shell` 是供运行时贡献者使用的参考集成应用。HuAHua 是生产应用，
-负责配对、二维码/自描述卡、权限、LAN 服务和执行 UI。
+HuAHua 是生产应用，负责配对、二维码/自描述卡、权限、LAN 服务和执行 UI。
