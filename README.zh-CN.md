@@ -15,8 +15,10 @@
   HuAHua App，用户无需安装。
 - `mcp-bootstrap`：同一局域网内供 AI 主机使用的 Node.js MCP 桥接包。
 
-第一阶段以 Android 为主；`contracts` 不依赖 Android API，后续 iOS 与桌面适配器可以复用
-同一套协议。
+## 平台范围
+
+当前生产运行时面向 Android。`contracts` 定义了不依赖 Android API 的跨平台命令、回执与配对
+类型；iOS 和桌面运行时可实现同一套协议。
 
 ## 技术架构
 
@@ -119,9 +121,9 @@ sequenceDiagram
 它不是 Shell，也不是无需认证的远控端点。
 
 HuAHua 在本地开发时通过 Gradle composite build 消费 `:android-runtime`。HuAHua 的前台/UI
-服务仍然是宿主，其固定 Android 动作和两阶段原始 PNG 截图委托给
-`AndroidPrivilegedDeviceRuntime`。原始 Shell 始终留在运行时内部；这不会引入
-任意 Shell 访问，也不会引入第二个产品 App。
+服务负责生命周期、权限和执行呈现；`AndroidPrivilegedDeviceRuntime` 提供固定 Android
+动作及两阶段原始 PNG 截图。运行时公开 API 仅包含类型受约束的设备命令和截图采集，
+不提供通用命令执行接口或产品 UI。
 
 `samples/android-pairing-shell` 只是给运行时贡献者使用的小型 Android 集成示例。生产用户
 安装 HuAHua；HuAHua App 负责配对、二维码/自描述卡、权限、LAN 服务和执行 UI。

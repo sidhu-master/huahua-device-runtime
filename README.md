@@ -17,8 +17,11 @@ protocol contracts, platform runtimes, and thin platform Agent Apps.
   experiments. It is not a second HuAHua app and users must not install it.
 - `mcp-bootstrap`: Node.js MCP bridge used by an AI host on the same LAN.
 
-The first milestone is Android-first, while the `contracts` module stays free
-of Android APIs so iOS and desktop adapters can adopt the same protocol later.
+## Platform scope
+
+The production runtime currently targets Android. `contracts` defines the
+platform-neutral command, receipt, and pairing types without Android API
+dependencies; iOS and desktop runtimes can implement the same protocol.
 
 ## Architecture
 
@@ -138,10 +141,11 @@ approved host, fresh observations, and narrow phone actions; it is not a shell
 or an unauthenticated remote-control endpoint.
 
 HuAHua consumes `:android-runtime` through a Gradle composite build during
-local development. HuAHua's foreground/UI service remains the host, while its
-fixed Android actions and the two-phase raw PNG capture delegate to
-`AndroidPrivilegedDeviceRuntime`. Raw shell remains internal to the runtime; this
-does not introduce arbitrary shell access or a second product app.
+local development. The HuAHua foreground/UI service owns lifecycle,
+permissions, and execution presentation. `AndroidPrivilegedDeviceRuntime`
+provides fixed Android actions and two-phase raw PNG capture. Its public API is
+limited to typed device commands and screenshot capture; it exposes neither a
+general-purpose command interface nor product UI.
 
 `samples/android-pairing-shell` exists only as a tiny Android integration
 example for runtime contributors. Production users install HuAHua; the HuAHua
