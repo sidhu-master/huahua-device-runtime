@@ -1,11 +1,15 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET" />
 
-    <application android:label="HuAHua UI Observation Runtime" android:allowBackup="false" />
+    <application
+        android:allowBackup="false"
+        android:label="HuAHua UI Observation Runtime"
+        android:testOnly="true"
+        android:theme="@android:style/Theme.NoDisplay" />
 
     <instrumentation
         android:name=".UiAutomationHelperInstrumentation"
         android:targetPackage="com.sidhu.device.uiautomationhelper"
-        android:functionalTest="false"
+        android:functionalTest="true"
         android:handleProfiling="false" />
 </manifest>

@@ -2,7 +2,9 @@ package com.sidhu.device.uiautomationhelper
 
 import android.app.UiAutomation
 import android.graphics.Rect
+import android.util.Log
 import android.view.accessibility.AccessibilityNodeInfo
+import android.view.accessibility.AccessibilityWindowInfo
 import com.google.gson.Gson
 import java.io.BufferedInputStream
 import java.net.InetAddress
@@ -37,7 +39,8 @@ internal class LoopbackSnapshotServer(
     private fun acceptLoop() {
         while (!closed.get()) {
             val socket = runCatching { serverSocket.accept() }.getOrNull() ?: break
-            socket.use(::handle)
+            runCatching { socket.use(::handle) }
+                .onFailure { error -> Log.e(TAG, "request_failed", error) }
         }
     }
 
@@ -60,14 +63,28 @@ internal class LoopbackSnapshotServer(
     }
 
     private fun snapshot(): Map<String, Any?> {
-        val root = uiAutomation.rootInActiveWindow
-        val packageName = root?.packageName?.toString().orEmpty()
         val nodes = mutableListOf<Map<String, Any?>>()
-        if (root != null) {
+        var packageName = ""
+        val windows = uiAutomation.windows
+            .filter { it.type == AccessibilityWindowInfo.TYPE_APPLICATION && it.isActive }
+            .ifEmpty { uiAutomation.windows.filter { it.type == AccessibilityWindowInfo.TYPE_APPLICATION } }
+        windows.forEach { window ->
+            val root = window.root ?: return@forEach
             try {
+                if (packageName.isEmpty()) packageName = root.packageName?.toString().orEmpty()
                 appendNode(root, null, nodes)
             } finally {
                 root.recycle()
+            }
+        }
+        if (nodes.isEmpty()) {
+            uiAutomation.rootInActiveWindow?.let { root ->
+                try {
+                    packageName = root.packageName?.toString().orEmpty()
+                    appendNode(root, null, nodes)
+                } finally {
+                    root.recycle()
+                }
             }
         }
         return mapOf(
@@ -120,7 +137,12 @@ internal class LoopbackSnapshotServer(
     private data class HttpRequest(val method: String, val path: String, val headers: Map<String, String>)
 
     private fun BufferedInputStream.readRequest(): HttpRequest {
-        val lines = generateSequence { readLine() }.take(64).toList()
+        val lines = mutableListOf<String>()
+        while (lines.size < 64) {
+            val line = readLine() ?: break
+            if (line.isEmpty()) break
+            lines += line
+        }
         val parts = lines.firstOrNull().orEmpty().split(' ')
         val headers = lines.drop(1).mapNotNull { line ->
             val divider = line.indexOf(':')
@@ -153,5 +175,9 @@ internal class LoopbackSnapshotServer(
         var difference = 0
         actual.indices.forEach { index -> difference = difference or (actual[index].code xor expected[index].code) }
         return difference == 0
+    }
+
+    private companion object {
+        const val TAG = "HuahuaUiAutomation"
     }
 }

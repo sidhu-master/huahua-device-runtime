@@ -1,22 +1,33 @@
 package com.sidhu.device.uiautomationhelper
 
 import android.app.Instrumentation
+import android.accessibilityservice.AccessibilityServiceInfo
 import android.os.Bundle
 import android.util.Log
-import androidx.test.platform.app.InstrumentationRegistry
 
 class UiAutomationHelperInstrumentation : Instrumentation() {
-    override fun onStart() {
+    private lateinit var startArguments: Bundle
+
+    override fun onCreate(arguments: Bundle) {
+        startArguments = Bundle(arguments)
+        super.onCreate(arguments)
         start()
-        val arguments = InstrumentationRegistry.getArguments()
-        val port = arguments.getString("port")?.toIntOrNull()
-        val token = arguments.getString("token").orEmpty()
+    }
+
+    override fun onStart() {
+        val port = startArguments.getString("port")?.toIntOrNull()
+        val token = startArguments.getString("token").orEmpty()
         if (port == null || token.length < MIN_TOKEN_LENGTH) {
             finishWith("invalid_arguments")
             return
         }
 
-        val server = runCatching { LoopbackSnapshotServer(uiAutomation, port, token) }.getOrElse {
+        val automation = runCatching { connectedUiAutomation() }.getOrElse {
+            Log.e(TAG, "uiautomation_connect_failed", it)
+            finishWith("uiautomation_connect_failed")
+            return
+        }
+        val server = runCatching { LoopbackSnapshotServer(automation, port, token) }.getOrElse {
             Log.e(TAG, "helper_start_failed", it)
             finishWith("start_failed")
             return
@@ -35,6 +46,20 @@ class UiAutomationHelperInstrumentation : Instrumentation() {
 
     private fun finishWith(state: String) {
         finish(0, Bundle().apply { putString("state", state) })
+    }
+
+    private fun connectedUiAutomation() = uiAutomation.also { automation ->
+        repeat(40) {
+            runCatching { automation.serviceInfo }.getOrNull()?.let { serviceInfo ->
+                if (serviceInfo.flags and AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS == 0) {
+                    serviceInfo.flags = serviceInfo.flags or AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS
+                    automation.serviceInfo = serviceInfo
+                }
+                return automation
+            }
+            Thread.sleep(50)
+        }
+        error("UiAutomation connection timed out")
     }
 
     private companion object {
