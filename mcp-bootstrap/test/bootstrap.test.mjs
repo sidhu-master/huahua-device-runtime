@@ -86,7 +86,7 @@ test("uses the v2 observation route and only the returned short token after resu
   const client = new HuahuaLanClient(async (url, init) => {
     assert.equal(url, "http://192.168.1.55:45678/v2/observe?host_id=host-a");
     assert.equal(init.headers.authorization, "Bearer short-token");
-    return new Response(JSON.stringify({ ok: true, observation_id: "obs-1", captured_at_ms: 1, png_base64: "", foreground_app: "", screen_width: 1, screen_height: 1 }));
+    return new Response(JSON.stringify({ ok: true, observation_id: "obs-1", captured_at_ms: 1, image_base64: "", image_mime_type: "image/jpeg", foreground_app: "", screen_width: 1, screen_height: 1 }));
   });
 
   await client.observe(session);
@@ -113,7 +113,8 @@ test("reads an authorized current-screen observation", async () => {
       ok: true,
       observation_id: "obs-1",
       captured_at_ms: 100,
-      png_base64: "AQI=",
+      image_base64: "AQI=",
+      image_mime_type: "image/jpeg",
       foreground_app: "com.example.app",
       screen_width: 1080,
       screen_height: 2400,
@@ -123,7 +124,8 @@ test("reads an authorized current-screen observation", async () => {
   const observation = await client.observe(session);
 
   assert.equal(observation.id, "obs-1");
-  assert.equal(observation.pngBase64, "AQI=");
+  assert.equal(observation.imageBase64, "AQI=");
+  assert.equal(observation.imageMimeType, "image/jpeg");
   assert.equal(observation.foregroundApp, "com.example.app");
 });
 

@@ -8,7 +8,8 @@ export type DeviceSession = { card: ConnectionCard; hostId: string; accessToken:
 export type DeviceObservation = {
   id: string;
   capturedAtMs: number;
-  pngBase64: string;
+  imageBase64: string;
+  imageMimeType: string;
   foregroundApp: string;
   screenWidth: number;
   screenHeight: number;
@@ -120,7 +121,10 @@ function observationFrom(payload: any): DeviceObservation {
   return {
     id: String(payload.observation_id ?? ""),
     capturedAtMs: Number(payload.captured_at_ms ?? 0),
-    pngBase64: String(payload.png_base64 ?? ""),
+    // image_* is the current contract. Keep the PNG fallback so an updated MCP
+    // can still read a phone that has not yet installed the bridge update.
+    imageBase64: String(payload.image_base64 ?? payload.png_base64 ?? ""),
+    imageMimeType: String(payload.image_mime_type ?? "image/png"),
     foregroundApp: String(payload.foreground_app ?? ""),
     screenWidth: Number(payload.screen_width ?? 0),
     screenHeight: Number(payload.screen_height ?? 0),

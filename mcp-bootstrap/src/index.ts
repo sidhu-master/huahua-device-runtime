@@ -32,7 +32,7 @@ function actionSchema<T extends z.ZodRawShape>(shape: T): T & { step_summary: z.
 
 function observationContent(observation: DeviceObservation) {
   return [
-    { type: "image" as const, data: observation.pngBase64, mimeType: "image/png" },
+    { type: "image" as const, data: observation.imageBase64, mimeType: observation.imageMimeType },
     { type: "text" as const, text: JSON.stringify({ observation_id: observation.id, foreground_app: observation.foregroundApp, screen_width: observation.screenWidth, screen_height: observation.screenHeight, captured_at_ms: observation.capturedAtMs }) },
   ];
 }
