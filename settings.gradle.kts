@@ -15,4 +15,4 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "huahua-device-runtime"
-include(":contracts", ":android-runtime", ":agent-app")
+include(":contracts", ":android-runtime", ":agent-app", ":ui-automation-helper")
