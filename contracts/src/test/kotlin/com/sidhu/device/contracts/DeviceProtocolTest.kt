@@ -5,7 +5,8 @@ import org.junit.Test
 
 class DeviceProtocolTest {
     @Test
-    fun versionIsStableForInitialAgentAndClientPairing() {
-        assertEquals("v1", DeviceProtocol.VERSION)
+    fun v2IsTheCurrentProtocolWhileV1RemainsBootstrapCompatible() {
+        assertEquals("v2", DeviceProtocol.VERSION)
+        assertEquals("v1", DeviceProtocol.LEGACY_VERSION)
     }
 }
