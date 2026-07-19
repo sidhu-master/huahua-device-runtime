@@ -15,4 +15,6 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "huahua-device-runtime"
-include(":contracts", ":android-runtime", ":agent-app", ":ui-automation-helper")
+include(":contracts", ":android-runtime", ":ui-automation-helper")
+include(":sample-agent-app")
+project(":sample-agent-app").projectDir = file("samples/android-pairing-shell")

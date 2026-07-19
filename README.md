@@ -11,7 +11,8 @@ protocol contracts, platform runtimes, and thin platform Agent Apps.
 
 - `contracts`: Kotlin/JVM portable device command and receipt contract.
 - `android-runtime`: Android implementation boundary for self-device control.
-- `agent-app`: minimal Android pairing/status shell.
+- `samples/android-pairing-shell`: non-production Android sample for protocol
+  experiments. It is not a second HuAHua app and users must not install it.
 - `mcp-bootstrap`: Node.js MCP bridge used by an AI host on the same LAN.
 
 The first milestone is Android-first, while the `contracts` module stays free
@@ -54,3 +55,8 @@ local development. `AutoGLMShizukuService` remains HuAHua's foreground/UI host,
 while its fixed Android actions and the two-phase raw PNG capture delegate to
 `ShizukuAndroidDeviceRuntime`. Raw shell remains internal to the runtime; this
 does not introduce arbitrary shell access or a second product app.
+
+`samples/android-pairing-shell` exists only as a tiny Android integration
+example for runtime contributors. Production users install HuAHua; the HuAHua
+app owns pairing, QR/self-describing setup cards, permissions, LAN service,
+and the execution UI.

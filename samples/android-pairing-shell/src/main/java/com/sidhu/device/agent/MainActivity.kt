@@ -6,8 +6,8 @@ import androidx.appcompat.app.AppCompatActivity
 import com.sidhu.device.runtime.android.DeviceLeaseCoordinator
 
 /**
- * Deliberately small first-run shell. Pairing, LAN transport, and permission
- * setup will be added only after their security design is implemented.
+ * Minimal runtime integration sample for contributors. Production pairing,
+ * LAN transport, permissions, and execution UI belong to the HuAHua app.
  */
 class MainActivity : AppCompatActivity() {
     private val leases = DeviceLeaseCoordinator()
