@@ -1,4 +1,4 @@
-package com.sidhu.device.runtime.android.shizuku
+package com.sidhu.device.runtime.android.privileged
 
 import com.sidhu.device.runtime.android.AndroidScreenCaptureFailureCode
 import com.sidhu.device.runtime.android.AndroidScreenCapturePreparation
@@ -10,12 +10,12 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-class ShizukuAndroidDeviceRuntimeTest {
+class AndroidPrivilegedDeviceRuntimeTest {
     @Test
     fun retriesOnceAfterRetryableBinderFailure() = runTest {
         val fakeShell = FakeShellExecutor(
             responses = mutableListOf(
-                RuntimeShellResult(false, "Shizuku binder not ready"),
+                RuntimeShellResult(false, "privileged bridge not ready"),
                 RuntimeShellResult(true, ""),
             ),
         )
@@ -198,7 +198,7 @@ class ShizukuAndroidDeviceRuntimeTest {
     private fun runtimeFor(
         shell: FakeShellExecutor,
         nowMs: () -> Long = { 0L },
-    ): ShizukuAndroidDeviceRuntime = ShizukuAndroidDeviceRuntime(shell, nowMs)
+    ): AndroidPrivilegedDeviceRuntime = AndroidPrivilegedDeviceRuntime(shell, nowMs)
 }
 
 private class FakeShellExecutor(

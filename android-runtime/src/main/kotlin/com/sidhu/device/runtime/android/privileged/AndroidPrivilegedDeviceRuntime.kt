@@ -1,4 +1,4 @@
-package com.sidhu.device.runtime.android.shizuku
+package com.sidhu.device.runtime.android.privileged
 
 import android.os.SystemClock
 import com.sidhu.device.contracts.DeviceCapability
@@ -9,12 +9,15 @@ import com.sidhu.device.runtime.android.AndroidScreenCaptureFailureCode
 import com.sidhu.device.runtime.android.AndroidScreenCapturePreparation
 import com.sidhu.device.runtime.android.AndroidScreenCaptureResult
 
-class ShizukuAndroidDeviceRuntime private constructor(
+class AndroidPrivilegedDeviceRuntime private constructor(
     private val shell: RetryingShellExecutor,
     private val nowMs: () -> Long,
 ) : AndroidDeviceRuntime {
-    constructor(readinessGate: RuntimeReadinessGate) : this(
-        RetryingShellExecutor(readinessGate, ShizukuShellExecutor()),
+    constructor(
+        readinessGate: RuntimeReadinessGate,
+        processBridge: PrivilegedProcessBridge,
+    ) : this(
+        RetryingShellExecutor(readinessGate, PrivilegedShellExecutor(processBridge)),
         { SystemClock.elapsedRealtime() },
     )
 

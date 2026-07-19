@@ -1,8 +1,7 @@
-package com.sidhu.device.runtime.android.shizuku
+package com.sidhu.device.runtime.android.privileged
 
 import com.sidhu.device.runtime.android.AndroidScreenCaptureFailureCode
 import java.lang.reflect.InvocationTargetException
-import java.lang.reflect.Method
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -10,7 +9,6 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
-import rikka.shizuku.Shizuku
 
 internal data class RuntimeShellResult(
     val success: Boolean,
@@ -30,6 +28,18 @@ internal data class RuntimeBinaryResult(
     val stderr: String = "",
     val failureCode: AndroidScreenCaptureFailureCode? = null,
 )
+
+/**
+ * Host-app boundary for starting a restricted privileged process.
+ *
+ * The open runtime deliberately does not depend on a particular Android
+ * privilege provider. Product apps supply this bridge from their private
+ * integration layer.
+ */
+interface PrivilegedProcessBridge {
+    fun isReady(): Boolean
+    fun start(command: Array<String>): Process?
+}
 
 internal class RetryingShellExecutor(
     private val readinessGate: RuntimeReadinessGate,
@@ -85,19 +95,12 @@ internal class RetryingShellExecutor(
     }
 }
 
-internal class ShizukuShellExecutor : RestrictedShellExecutor {
-    @Volatile
-    private var cachedNewProcessMethod: Method? = null
+internal class PrivilegedShellExecutor(
+    private val bridge: PrivilegedProcessBridge,
+) : RestrictedShellExecutor {
 
     override suspend fun prepare(timeoutMs: Long): RuntimeShellResult = withContext(Dispatchers.IO) {
-        if (!binderIsReady()) return@withContext binderUnavailable()
-        val method = resolveNewProcessMethod()
-            ?: return@withContext RuntimeShellResult(
-                success = false,
-                output = "Unable to resolve Shizuku newProcess",
-                failureCode = AndroidScreenCaptureFailureCode.PROCESS_SETUP_FAILED,
-            )
-        cachedNewProcessMethod = method
+        if (!bridge.isReady()) return@withContext bridgeUnavailable()
         RuntimeShellResult(success = true, output = "")
     }
 
@@ -134,24 +137,17 @@ internal class ShizukuShellExecutor : RestrictedShellExecutor {
                 AndroidScreenCaptureFailureCode.TIMEOUT,
             )
         }
-        if (!binderIsReady()) return ProcessExecution.from(binderUnavailable())
-
-        val method = cachedNewProcessMethod ?: resolveNewProcessMethod()
-            ?: return ProcessExecution.failure(
-                "Unable to resolve Shizuku newProcess",
-                AndroidScreenCaptureFailureCode.PROCESS_SETUP_FAILED,
-            )
-        cachedNewProcessMethod = method
+        if (!bridge.isReady()) return ProcessExecution.from(bridgeUnavailable())
 
         val process = try {
-            method.invoke(null, command, null, null) as? Process
+            bridge.start(command)
                 ?: return ProcessExecution.failure(
-                    "Shizuku newProcess did not return a Process",
+                    "Privileged process bridge did not return a Process",
                     AndroidScreenCaptureFailureCode.PROCESS_SETUP_FAILED,
                 )
         } catch (error: Throwable) {
             return ProcessExecution.failure(
-                "Shizuku newProcess failed: ${bounded(rootMessage(error))}",
+                "Privileged process start failed: ${bounded(rootMessage(error))}",
                 AndroidScreenCaptureFailureCode.PROCESS_SETUP_FAILED,
             )
         }
@@ -205,34 +201,11 @@ internal class ShizukuShellExecutor : RestrictedShellExecutor {
             }
         }
 
-    private fun binderIsReady(): Boolean = runCatching {
-        Shizuku.getBinder()?.pingBinder() == true
-    }.getOrDefault(false)
-
-    private fun binderUnavailable(): RuntimeShellResult = RuntimeShellResult(
+    private fun bridgeUnavailable(): RuntimeShellResult = RuntimeShellResult(
         success = false,
-        output = "Shizuku binder unavailable",
+        output = "Privileged process bridge unavailable",
         failureCode = AndroidScreenCaptureFailureCode.BINDER_UNAVAILABLE,
     )
-
-    private fun resolveNewProcessMethod(): Method? {
-        cachedNewProcessMethod?.let { return it }
-        return runCatching {
-            Shizuku::class.java.getMethod(
-                "newProcess",
-                Array<String>::class.java,
-                Array<String>::class.java,
-                String::class.java,
-            )
-        }.recoverCatching {
-            Shizuku::class.java.getDeclaredMethod(
-                "newProcess",
-                Array<String>::class.java,
-                Array<String>::class.java,
-                String::class.java,
-            ).apply { isAccessible = true }
-        }.getOrNull()
-    }
 }
 
 internal suspend fun waitForProcessExit(
@@ -277,7 +250,7 @@ private data class ProcessExecution(
 private fun retryable(output: String): Boolean {
     val normalized = output.lowercase()
     return output.isBlank() ||
-        normalized.contains("shizuku") ||
+        normalized.contains("bridge") ||
         normalized.contains("binder") ||
         normalized.contains("timeout") ||
         normalized.contains("not ready") ||

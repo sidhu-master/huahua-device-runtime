@@ -118,9 +118,9 @@ sequenceDiagram
 原始 ADB 端点或任意 Shell 执行。LAN MCP 桥接严格限制为已批准主机、最新观察和有限手机动作；
 它不是 Shell，也不是无需认证的远控端点。
 
-HuAHua 在本地开发时通过 Gradle composite build 消费 `:android-runtime`。
-`AutoGLMShizukuService` 仍然是 HuAHua 的前台/UI 宿主，其固定 Android 动作和两阶段原始
-PNG 截图委托给 `ShizukuAndroidDeviceRuntime`。原始 Shell 始终留在运行时内部；这不会引入
+HuAHua 在本地开发时通过 Gradle composite build 消费 `:android-runtime`。HuAHua 的前台/UI
+服务仍然是宿主，其固定 Android 动作和两阶段原始 PNG 截图委托给
+`AndroidPrivilegedDeviceRuntime`。原始 Shell 始终留在运行时内部；这不会引入
 任意 Shell 访问，也不会引入第二个产品 App。
 
 `samples/android-pairing-shell` 只是给运行时贡献者使用的小型 Android 集成示例。生产用户

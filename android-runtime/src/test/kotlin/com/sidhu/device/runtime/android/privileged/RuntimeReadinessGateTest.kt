@@ -1,4 +1,4 @@
-package com.sidhu.device.runtime.android.shizuku
+package com.sidhu.device.runtime.android.privileged
 
 import com.sidhu.device.runtime.android.AndroidScreenCapturePreparation
 import com.sidhu.device.runtime.android.AndroidScreenCaptureResult

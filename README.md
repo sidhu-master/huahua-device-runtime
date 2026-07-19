@@ -138,9 +138,9 @@ approved host, fresh observations, and narrow phone actions; it is not a shell
 or an unauthenticated remote-control endpoint.
 
 HuAHua consumes `:android-runtime` through a Gradle composite build during
-local development. `AutoGLMShizukuService` remains HuAHua's foreground/UI host,
-while its fixed Android actions and the two-phase raw PNG capture delegate to
-`ShizukuAndroidDeviceRuntime`. Raw shell remains internal to the runtime; this
+local development. HuAHua's foreground/UI service remains the host, while its
+fixed Android actions and the two-phase raw PNG capture delegate to
+`AndroidPrivilegedDeviceRuntime`. Raw shell remains internal to the runtime; this
 does not introduce arbitrary shell access or a second product app.
 
 `samples/android-pairing-shell` exists only as a tiny Android integration

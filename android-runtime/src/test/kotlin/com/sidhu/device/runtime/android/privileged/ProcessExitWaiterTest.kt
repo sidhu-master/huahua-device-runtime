@@ -1,4 +1,4 @@
-package com.sidhu.device.runtime.android.shizuku
+package com.sidhu.device.runtime.android.privileged
 
 import java.io.InputStream
 import java.io.OutputStream
