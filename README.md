@@ -1,5 +1,7 @@
 # HuAHua Device Runtime
 
+[English](README.md) | [简体中文](README.zh-CN.md)
+
 Local-network-first runtime for letting a user's AI safely control a device on
 which the HuAHua app is installed.
 
