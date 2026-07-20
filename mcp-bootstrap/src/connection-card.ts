@@ -27,7 +27,7 @@ export function parseConnectionCard(serialized: string, nowMs = Date.now()): Con
     card.discoveryServiceType = decode(required("discovery_service_type"));
     if (card.discoveryServiceType !== "_huahua-device-agent._tcp.") throw new Error("连接卡包含不支持的局域网发现服务。");
   }
-  if (!Number.isSafeInteger(card.expiresAtMs) || card.expiresAtMs <= nowMs) throw new Error("连接卡已过期，请在手机中重新生成。");
+  if (!Number.isSafeInteger(card.expiresAtMs) || card.expiresAtMs <= nowMs) throw new Error("连接卡已过期。请在 HuAHua 的“自己的 AI 控制手机”页面点击“刷新连接卡”，再将新卡发送给 AI。");
   const endpoint = new URL(card.endpoint);
   if (!["http:", "https:"].includes(endpoint.protocol) || !endpoint.hostname) throw new Error("连接卡中的局域网地址无效。");
   return card;
