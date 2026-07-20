@@ -1,6 +1,6 @@
 {
   "name": "@newwe/huahua",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Local LAN MCP bootstrap for a HuAHua device agent",
   "type": "module",
   "bin": {

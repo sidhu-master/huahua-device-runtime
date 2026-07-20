@@ -22,6 +22,15 @@ test("parses the Android connection card format", () => {
   assert.equal(card.endpoint, "http://192.168.1.10:38473");
 });
 
+test("expired cards tell the user how to refresh from HuAHua", () => {
+  assert.throws(
+    () => parseConnectionCard(cardText, 4102444800000),
+    {
+      message: "连接卡已过期。请在 HuAHua 的“自己的 AI 控制手机”页面点击“刷新连接卡”，再将新卡发送给 AI。",
+    },
+  );
+});
+
 test("host identity is stable after the first secure local write", async () => {
   const directory = await mkdtemp(join(tmpdir(), "huahua-mcp-test-"));
   const store = new HostIdentityStore(directory);
