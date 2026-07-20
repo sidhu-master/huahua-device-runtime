@@ -1,5 +1,5 @@
 {
-  "name": "@huahua/mcp",
+  "name": "@huahua-sidhu/mcp",
   "version": "0.1.0",
   "description": "Local LAN MCP bootstrap for a HuAHua device agent",
   "type": "module",
