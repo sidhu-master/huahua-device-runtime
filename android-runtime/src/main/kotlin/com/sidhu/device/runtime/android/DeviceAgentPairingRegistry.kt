@@ -42,6 +42,19 @@ class DeviceAgentPairingRegistry(
         )
     }
 
+    /**
+     * Replaces the current unpaired invitation without persisting its bootstrap token.
+     * A previously shared card must no longer be redeemable after this call.
+     */
+    @Synchronized
+    fun refreshInvitation(
+        endpoint: String,
+        displayName: String,
+    ): DeviceConnectionCard {
+        invitations.clear()
+        return createInvitation(endpoint, displayName)
+    }
+
     @Synchronized
     fun requestPairing(
         connectionId: String,
@@ -144,7 +157,7 @@ class DeviceAgentPairingRegistry(
     )
 
     companion object {
-        const val DEFAULT_INVITATION_TTL_MS = 5L * 60L * 1000L
+        const val DEFAULT_INVITATION_TTL_MS = 15L * 60L * 1000L
         const val DEFAULT_PAIRING_REQUEST_TTL_MS = 5L * 60L * 1000L
         const val DEFAULT_HOST_ACCESS_TTL_MS = 24L * 60L * 60L * 1000L
         private val secureRandom = SecureRandom()
