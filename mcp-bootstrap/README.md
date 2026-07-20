@@ -11,7 +11,7 @@ stdio MCP 传输、主机身份和短期会话；模型推理、云端控制、A
 
 ```mermaid
 flowchart LR
-    AI["AI 主脑"] -->|"MCP tool call"| MCP["@newwe/mcp\nNode.js 20+"]
+    AI["AI 主脑"] -->|"MCP tool call"| MCP["@newwe/huahua\nNode.js 20+"]
     MCP -->|"mDNS + 短期签名会话"| PHONE["HuAHua Android Device Agent"]
     PHONE -->|"复用"| ENGINE["HuAHua 执行引擎\n安全策略 / 接管 / 本地历史"]
     ENGINE --> UI["真实 Android 界面"]
@@ -61,7 +61,7 @@ Node.js 20+ 和 MCP 支持的 AI 主机中完成，而不能声称已经连上�
 ```text
 HUAHUA_MCP_SETUP_V1
 docs=https://github.com/sidhu-master/huahua-device-runtime/tree/main/mcp-bootstrap
-package=@newwe/mcp
+package=@newwe/huahua
 connection_card=huahua://device-agent/v2?...
 ```
 
@@ -85,7 +85,7 @@ HuAHua 设置中的“AI 控制此手机”应同时提供：
 发布到 npm 后，首次配对可以从支持 npm 的 AI 主机运行：
 
 ```bash
-npm exec --yes @newwe/mcp@<published-version> connect '<connection_card>'
+npm exec --yes @newwe/huahua@<published-version> connect '<connection_card>'
 ```
 
 该命令会等待用户在手机上批准，然后以 stdio MCP server 运行。把它配置为当前 AI
@@ -102,7 +102,7 @@ npm exec --yes @newwe/mcp@<published-version> connect '<connection_card>'
 首次配对成功后，使用持久设备 ID 恢复连接：
 
 ```bash
-npm exec --yes @newwe/mcp@<published-version> serve --device '<device_id>'
+npm exec --yes @newwe/huahua@<published-version> serve --device '<device_id>'
 ```
 
 主机配置保存在 `~/.config/huahua-mcp`，目录权限为 `0700`，文件权限为 `0600`；
