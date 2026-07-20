@@ -2,6 +2,7 @@ package com.sidhu.device.runtime.android
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -73,5 +74,26 @@ class DeviceAgentPairingRegistryTest {
 
         assertEquals(null, registry.pendingRequest(request.requestId))
         check(runCatching { registry.approve(request.requestId) }.isFailure)
+    }
+
+    @Test
+    fun refreshInvalidatesThePreviousInvitationAndCreatesAFifteenMinuteCard() {
+        val nowMs = 1_000L
+        var sequence = 0
+        val registry = DeviceAgentPairingRegistry(
+            nowMs = { nowMs },
+            tokenFactory = { purpose -> "$purpose-${++sequence}" },
+        )
+        val first = registry.createInvitation("http://192.168.1.10:38473", "Pixel 9")
+
+        val refreshed = registry.refreshInvitation("http://192.168.1.10:38473", "Pixel 9")
+
+        assertEquals(nowMs + 15L * 60L * 1000L, refreshed.expiresAtMs)
+        assertNotEquals(first.connectionId, refreshed.connectionId)
+        assertTrue(
+            runCatching {
+                registry.requestPairing(first.connectionId, first.bootstrapToken, "host-a", "Codex")
+            }.isFailure,
+        )
     }
 }
