@@ -13,7 +13,7 @@ const cardText = "huahua://device-agent/v1?connection_id=Y29ubmVjdGlvbi0x&endpoi
 test("declares the official public package name", async () => {
   const manifest = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
 
-  assert.equal(manifest.name, "@huahua-sidhu/mcp");
+  assert.equal(manifest.name, "@newwe/mcp");
 });
 
 test("parses the Android connection card format", () => {
