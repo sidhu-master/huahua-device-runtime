@@ -4,11 +4,17 @@ import { HuahuaLanClient, parseConnectionCard } from "../dist/index.js";
 import { HostIdentityStore } from "../dist/host-identity-store.js";
 import { DeviceProfileStore } from "../dist/device-profile-store.js";
 import { generateKeyPairSync } from "node:crypto";
-import { mkdtemp, stat } from "node:fs/promises";
+import { mkdtemp, readFile, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const cardText = "huahua://device-agent/v1?connection_id=Y29ubmVjdGlvbi0x&endpoint=aHR0cDovLzE5Mi4xNjguMS4xMDozODQ3Mw&token=Ym9vdHN0cmFwLXNlY3JldA&name=UGl4ZWwgOQ&expires_at_ms=4102444800000";
+
+test("declares the official public package name", async () => {
+  const manifest = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
+
+  assert.equal(manifest.name, "@huahua-sidhu/mcp");
+});
 
 test("parses the Android connection card format", () => {
   const card = parseConnectionCard(cardText, 1);
