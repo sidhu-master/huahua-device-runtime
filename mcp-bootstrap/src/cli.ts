@@ -8,9 +8,9 @@ const sessions = new DeviceSessionManager();
 
 try {
   if (command === "connect" && argumentsList[0]) {
-    await startMcp(await sessions.pair(argumentsList[0], process.env.HUAHUA_HOST_NAME || "AI Host"));
+    await startMcp(await sessions.pair(argumentsList[0], process.env.HUAHUA_HOST_NAME || "AI Host"), undefined, sessions);
   } else if (command === "serve" && argumentsList[0] === "--device" && argumentsList[1]) {
-    await startMcp(await sessions.resume(argumentsList[1]));
+    await startMcp(await sessions.resume(argumentsList[1]), undefined, sessions);
   } else if (command === "pair" || command === "observe" || command === "command") {
     await runDirectCliCommand([command, ...argumentsList], { sessions });
   } else {
