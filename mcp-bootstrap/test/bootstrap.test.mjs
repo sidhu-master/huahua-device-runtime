@@ -219,6 +219,46 @@ test("renews an expired trusted-session token before retrying an observation", a
   assert.equal(observationAttempts, 2);
 });
 
+test("renews a near-expiry session before observing so the host never sees a 403", async () => {
+  const original = trustedSession("http://192.168.1.10:38473", 1_000, "expiring-token");
+  const renewed = trustedSession("http://192.168.1.10:38473", 600_000, "renewed-token");
+  let resumes = 0;
+  const recovery = new ResilientDeviceSession(original, {
+    resume: async () => {
+      resumes += 1;
+      return renewed;
+    },
+  }, {
+    observe: async session => {
+      assert.equal(session.accessToken, renewed.accessToken);
+      return observation("obs-after-proactive-renewal");
+    },
+    command: async () => { throw new Error("command is not expected"); },
+  }, () => 0);
+
+  assert.equal((await recovery.observe()).id, "obs-after-proactive-renewal");
+  assert.equal(resumes, 1);
+});
+
+test("renews a near-expiry session before an action without replaying it", async () => {
+  const original = trustedSession("http://192.168.1.10:38473", 1_000, "expiring-token");
+  const renewed = trustedSession("http://192.168.1.10:38473", 600_000, "renewed-token");
+  let actionAttempts = 0;
+  const recovery = new ResilientDeviceSession(original, {
+    resume: async () => renewed,
+  }, {
+    observe: async () => observation("unused"),
+    command: async session => {
+      actionAttempts += 1;
+      assert.equal(session.accessToken, renewed.accessToken);
+      return { outcome: "succeeded", detail: "手机操作已完成。" };
+    },
+  }, () => 0);
+
+  assert.equal((await recovery.command({ action: "tap", x: 12, y: 34, stepSummary: "点击搜索框", expectedObservationId: "obs-1" })).outcome, "succeeded");
+  assert.equal(actionAttempts, 1);
+});
+
 test("never retries a device action after a LAN address change", async () => {
   const original = trustedSession("http://192.168.1.10:38473");
   let actionAttempts = 0;
@@ -277,17 +317,17 @@ test("resumes a trusted session through current LAN discovery instead of the old
   assert.ok(JSON.parse(calls[1].init.body).signature);
 });
 
-function trustedSession(endpoint) {
+function trustedSession(endpoint, expiresAtMs = Date.now() + 10 * 60_000, accessToken = "short-token") {
   return {
     hostId: "host-a",
-    accessToken: "short-token",
-    expiresAtMs: 9999,
+    accessToken,
+    expiresAtMs,
     card: {
       connectionId: "trusted-session",
       endpoint,
       bootstrapToken: "",
       displayName: "Pixel 9",
-      expiresAtMs: 9999,
+      expiresAtMs,
       deviceId: "agent-device-a",
       discoveryServiceType: "_huahua-device-agent._tcp.",
     },

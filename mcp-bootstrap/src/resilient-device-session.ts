@@ -25,6 +25,7 @@ export class ResilientDeviceSession {
     private session: DeviceSession,
     private readonly sessions: SessionResumer | undefined,
     private readonly client: DeviceClient = new HuahuaLanClient(),
+    private readonly nowMs: () => number = Date.now,
   ) {}
 
   get current(): DeviceSession {
@@ -32,6 +33,7 @@ export class ResilientDeviceSession {
   }
 
   async observe(): Promise<DeviceObservation> {
+    await this.refreshBeforeExpiry();
     try {
       return await this.client.observe(this.session);
     } catch (error) {
@@ -41,6 +43,7 @@ export class ResilientDeviceSession {
   }
 
   async command(input: DeviceCommandInput): Promise<DeviceCommandResponse> {
+    await this.refreshBeforeExpiry();
     try {
       return await this.client.command(this.session, input);
     } catch (error) {
@@ -51,8 +54,19 @@ export class ResilientDeviceSession {
 
   private async recoverAfterTransportFailure(error: unknown): Promise<void> {
     if (!isRecoverableSessionFailure(error)) throw error;
+    await this.resumeTrustedSession();
+  }
+
+  private async refreshBeforeExpiry(): Promise<void> {
+    if (this.session.expiresAtMs > this.nowMs() + SESSION_RENEWAL_WINDOW_MS) return;
+    await this.resumeTrustedSession();
+  }
+
+  private async resumeTrustedSession(): Promise<void> {
     const deviceId = this.session.card.deviceId;
-    if (!deviceId || !this.sessions) throw error;
+    if (!deviceId || !this.sessions) {
+      throw new Error("当前短期控制会话无法续连，请在手机中重新连接。");
+    }
     const pending = this.recovery ?? this.sessions.resume(deviceId);
     this.recovery = pending;
     try {
@@ -62,6 +76,8 @@ export class ResilientDeviceSession {
     }
   }
 }
+
+const SESSION_RENEWAL_WINDOW_MS = 60_000;
 
 function isRecoverableSessionFailure(error: unknown): boolean {
   if (error instanceof TypeError) return true;
