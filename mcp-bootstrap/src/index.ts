@@ -2,23 +2,29 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import { DeviceCommandResponse, DeviceObservation, DeviceSession, HuahuaLanClient } from "./client.js";
+import { ActionRequiresFreshObservationError, ResilientDeviceSession } from "./resilient-device-session.js";
 
-export async function startMcp(session: DeviceSession, client = new HuahuaLanClient()): Promise<void> {
+type SessionResumer = { resume(deviceId: string): Promise<DeviceSession> };
+
+export async function startMcp(session: DeviceSession, client = new HuahuaLanClient(), sessions?: SessionResumer): Promise<void> {
+  const device = new ResilientDeviceSession(session, sessions, client);
   const server = new McpServer({ name: "huahua-device-agent", version: "0.1.0" });
   server.tool("device_status", "Read the local HuAHua phone agent connection state.", {}, async () => {
-    const health = await client.health(session.card);
-    return { content: [{ type: "text", text: JSON.stringify({ device: session.card.displayName, host_id: session.hostId, session_expires_at_ms: session.expiresAtMs, health }) }] };
+    const current = device.current;
+    const health = await client.health(current.card);
+    return { content: [{ type: "text", text: JSON.stringify({ device: current.card.displayName, host_id: current.hostId, session_expires_at_ms: current.expiresAtMs, health }) }] };
   });
-  server.tool("device_session", "Read the approved local device session metadata. This never reveals the access token.", { detail: z.boolean().optional() }, async () => ({
-    content: [{ type: "text", text: JSON.stringify({ device: session.card.displayName, endpoint: session.card.endpoint, expires_at_ms: session.expiresAtMs }) }]
-  }));
-  server.tool("device_observe", "Read the current approved HuAHua phone screen before choosing the next action.", {}, async () => ({ content: observationContent(await client.observe(session)) }));
-  server.tool("device_tap", "Tap a coordinate only after observing the current approved HuAHua phone screen.", actionSchema({ x: z.number().int(), y: z.number().int() }), async ({ x, y, step_summary, observation_id }) => ({ content: commandContent(await client.command(session, { action: "tap", x, y, stepSummary: step_summary, expectedObservationId: observation_id })) }));
-  server.tool("device_swipe", "Swipe only after observing the current approved HuAHua phone screen.", actionSchema({ x: z.number().int(), y: z.number().int(), endX: z.number().int(), endY: z.number().int() }), async ({ x, y, endX, endY, step_summary, observation_id }) => ({ content: commandContent(await client.command(session, { action: "swipe", x, y, endX, endY, stepSummary: step_summary, expectedObservationId: observation_id })) }));
-  server.tool("device_back", "Press Back only after observing the current approved HuAHua phone screen.", actionSchema({}), async ({ step_summary, observation_id }) => ({ content: commandContent(await client.command(session, { action: "back", stepSummary: step_summary, expectedObservationId: observation_id })) }));
-  server.tool("device_home", "Go Home only after observing the current approved HuAHua phone screen.", actionSchema({}), async ({ step_summary, observation_id }) => ({ content: commandContent(await client.command(session, { action: "home", stepSummary: step_summary, expectedObservationId: observation_id })) }));
-  server.tool("device_launch_app", "Launch an installed Android package only after observing the current approved HuAHua phone screen.", actionSchema({ packageName: z.string().min(1) }), async ({ packageName, step_summary, observation_id }) => ({ content: commandContent(await client.command(session, { action: "launch", packageName, stepSummary: step_summary, expectedObservationId: observation_id })) }));
-  server.tool("device_input_text", "Input ordinary non-sensitive text into the currently focused field. Passwords, verification codes, payments, and confirmations stay on the phone.", actionSchema({ text: z.string().min(1).max(4096) }), async ({ text, step_summary, observation_id }) => ({ content: commandContent(await client.command(session, { action: "input_text", text, stepSummary: step_summary, expectedObservationId: observation_id })) }));
+  server.tool("device_session", "Read the approved local device session metadata. This never reveals the access token.", { detail: z.boolean().optional() }, async () => {
+    const current = device.current;
+    return { content: [{ type: "text", text: JSON.stringify({ device: current.card.displayName, endpoint: current.card.endpoint, expires_at_ms: current.expiresAtMs }) }] };
+  });
+  server.tool("device_observe", "Read the current approved HuAHua phone screen before choosing the next action.", {}, async () => ({ content: observationContent(await device.observe()) }));
+  server.tool("device_tap", "Tap a coordinate only after observing the current approved HuAHua phone screen.", actionSchema({ x: z.number().int(), y: z.number().int() }), async ({ x, y, step_summary, observation_id }) => commandResult(device, { action: "tap", x, y, stepSummary: step_summary, expectedObservationId: observation_id }));
+  server.tool("device_swipe", "Swipe only after observing the current approved HuAHua phone screen.", actionSchema({ x: z.number().int(), y: z.number().int(), endX: z.number().int(), endY: z.number().int() }), async ({ x, y, endX, endY, step_summary, observation_id }) => commandResult(device, { action: "swipe", x, y, endX, endY, stepSummary: step_summary, expectedObservationId: observation_id }));
+  server.tool("device_back", "Press Back only after observing the current approved HuAHua phone screen.", actionSchema({}), async ({ step_summary, observation_id }) => commandResult(device, { action: "back", stepSummary: step_summary, expectedObservationId: observation_id }));
+  server.tool("device_home", "Go Home only after observing the current approved HuAHua phone screen.", actionSchema({}), async ({ step_summary, observation_id }) => commandResult(device, { action: "home", stepSummary: step_summary, expectedObservationId: observation_id }));
+  server.tool("device_launch_app", "Launch an installed Android package only after observing the current approved HuAHua phone screen.", actionSchema({ packageName: z.string().min(1) }), async ({ packageName, step_summary, observation_id }) => commandResult(device, { action: "launch", packageName, stepSummary: step_summary, expectedObservationId: observation_id }));
+  server.tool("device_input_text", "Input ordinary non-sensitive text into the currently focused field. Passwords, verification codes, payments, and confirmations stay on the phone.", actionSchema({ text: z.string().min(1).max(4096) }), async ({ text, step_summary, observation_id }) => commandResult(device, { action: "input_text", text, stepSummary: step_summary, expectedObservationId: observation_id }));
   await server.connect(new StdioServerTransport());
 }
 
@@ -42,8 +48,20 @@ function commandContent(response: DeviceCommandResponse) {
   return response.observation ? [...content, ...observationContent(response.observation)] : content;
 }
 
+async function commandResult(device: ResilientDeviceSession, input: Parameters<ResilientDeviceSession["command"]>[0]) {
+  try {
+    return { content: commandContent(await device.command(input)) };
+  } catch (error) {
+    if (error instanceof ActionRequiresFreshObservationError) {
+      return { content: [{ type: "text" as const, text: JSON.stringify({ outcome: "reobserve_required", detail: error.message }) }] };
+    }
+    throw error;
+  }
+}
+
 export { HuahuaLanClient } from "./client.js";
 export { parseConnectionCard } from "./connection-card.js";
 export { HostIdentityStore } from "./host-identity-store.js";
 export { DeviceProfileStore } from "./device-profile-store.js";
 export { DeviceSessionManager } from "./device-session-manager.js";
+export { ActionRequiresFreshObservationError, ResilientDeviceSession } from "./resilient-device-session.js";

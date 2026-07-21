@@ -1,6 +1,7 @@
 import { writeFile } from "node:fs/promises";
 import { DeviceCommandInput, DeviceCommandResponse, DeviceObservation, DeviceSession, HuahuaLanClient } from "./client.js";
 import { DeviceSessionManager } from "./device-session-manager.js";
+import { ActionRequiresFreshObservationError, ResilientDeviceSession } from "./resilient-device-session.js";
 
 type SessionProvider = Pick<DeviceSessionManager, "pair" | "resume">;
 type DeviceClient = Pick<HuahuaLanClient, "observe" | "command">;
@@ -31,8 +32,9 @@ export async function runDirectCliCommand(argumentsList: string[], dependencies:
   const options = parseOptions(rawArgs);
   const deviceId = required(options.get("--device"), "设备 ID");
   const session = await sessions.resume(deviceId);
+  const device = new ResilientDeviceSession(session, sessions, client);
   if (command === "observe") {
-    const observation = await client.observe(session);
+    const observation = await device.observe();
     write(JSON.stringify({
       device_id: session.card.deviceId ?? deviceId,
       device_name: session.card.displayName,
@@ -42,7 +44,16 @@ export async function runDirectCliCommand(argumentsList: string[], dependencies:
   }
 
   if (command === "command") {
-    const result = await client.command(session, commandInput(options));
+    let result;
+    try {
+      result = await device.command(commandInput(options));
+    } catch (error) {
+      if (error instanceof ActionRequiresFreshObservationError) {
+        write(JSON.stringify({ outcome: "reobserve_required", detail: error.message }));
+        return;
+      }
+      throw error;
+    }
     write(JSON.stringify({
       outcome: result.outcome,
       detail: result.detail,

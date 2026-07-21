@@ -5,6 +5,7 @@ import { HostIdentityStore } from "../dist/host-identity-store.js";
 import { DeviceProfileStore } from "../dist/device-profile-store.js";
 import { DeviceSessionManager } from "../dist/device-session-manager.js";
 import { runDirectCliCommand } from "../dist/cli-command-runner.js";
+import { ActionRequiresFreshObservationError, ResilientDeviceSession } from "../dist/resilient-device-session.js";
 import { generateKeyPairSync } from "node:crypto";
 import { mkdtemp, readFile, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -153,6 +154,78 @@ test("direct CLI preserves the observation precondition for a tap", async () => 
   assert.deepEqual(commandInput, { action: "tap", x: 12, y: 34, stepSummary: "点击搜索框", expectedObservationId: "obs-1" });
 });
 
+test("direct CLI reports re-observation instead of replaying an action after recovery", async () => {
+  const lines = [];
+  let actionAttempts = 0;
+  await runDirectCliCommand([
+    "command", "--device", "agent-device-a", "--action", "tap", "--x", "12", "--y", "34",
+    "--observation-id", "obs-1", "--summary", "点击搜索框",
+  ], {
+    sessions: {
+      resume: async () => trustedSession("http://192.168.1.55:45678"),
+    },
+    client: {
+      observe: async () => observation("unused"),
+      command: async () => {
+        actionAttempts += 1;
+        throw new TypeError("fetch failed");
+      },
+    },
+    writeImage: async () => { throw new Error("image write is not expected"); },
+    write: value => lines.push(value),
+  });
+
+  assert.equal(actionAttempts, 1);
+  assert.equal(JSON.parse(lines[0]).outcome, "reobserve_required");
+});
+
+test("retries one observation after a LAN address change by resuming the trusted session", async () => {
+  const original = trustedSession("http://192.168.1.10:38473");
+  const recovered = trustedSession("http://192.168.1.55:45678");
+  const observedEndpoints = [];
+  const recovery = new ResilientDeviceSession(original, {
+    resume: async deviceId => {
+      assert.equal(deviceId, "agent-device-a");
+      return recovered;
+    },
+  }, {
+    observe: async session => {
+      observedEndpoints.push(session.card.endpoint);
+      if (session.card.endpoint === original.card.endpoint) throw new TypeError("fetch failed");
+      return observation("obs-after-ip-change");
+    },
+    command: async () => { throw new Error("command is not expected"); },
+  });
+
+  assert.equal((await recovery.observe()).id, "obs-after-ip-change");
+  assert.deepEqual(observedEndpoints, ["http://192.168.1.10:38473", "http://192.168.1.55:45678"]);
+});
+
+test("never retries a device action after a LAN address change", async () => {
+  const original = trustedSession("http://192.168.1.10:38473");
+  let actionAttempts = 0;
+  let recoveries = 0;
+  const recovery = new ResilientDeviceSession(original, {
+    resume: async () => {
+      recoveries += 1;
+      return trustedSession("http://192.168.1.55:45678");
+    },
+  }, {
+    observe: async () => observation("unused"),
+    command: async () => {
+      actionAttempts += 1;
+      throw new TypeError("fetch failed");
+    },
+  });
+
+  await assert.rejects(
+    () => recovery.command({ action: "tap", x: 12, y: 34, stepSummary: "点击搜索框", expectedObservationId: "obs-1" }),
+    ActionRequiresFreshObservationError,
+  );
+  assert.equal(actionAttempts, 1);
+  assert.equal(recoveries, 1);
+});
+
 test("resumes a trusted session through current LAN discovery instead of the old card endpoint", async () => {
   const { privateKey, publicKey } = generateKeyPairSync("ec", { namedCurve: "prime256v1" });
   const identity = {
@@ -185,6 +258,27 @@ test("resumes a trusted session through current LAN discovery instead of the old
   assert.equal(JSON.parse(calls[1].init.body).hostId, "host-a");
   assert.ok(JSON.parse(calls[1].init.body).signature);
 });
+
+function trustedSession(endpoint) {
+  return {
+    hostId: "host-a",
+    accessToken: "short-token",
+    expiresAtMs: 9999,
+    card: {
+      connectionId: "trusted-session",
+      endpoint,
+      bootstrapToken: "",
+      displayName: "Pixel 9",
+      expiresAtMs: 9999,
+      deviceId: "agent-device-a",
+      discoveryServiceType: "_huahua-device-agent._tcp.",
+    },
+  };
+}
+
+function observation(id) {
+  return { id, capturedAtMs: 100, imageBase64: "AQI=", imageMimeType: "image/jpeg", foregroundApp: "com.example", screenWidth: 1080, screenHeight: 2400 };
+}
 
 test("uses the v2 observation route and only the returned short token after resume", async () => {
   const session = {
