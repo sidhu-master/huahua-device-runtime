@@ -13,7 +13,7 @@
 从用户提供的自述卡中读取 `connection_card`，只在本机终端中使用它。不得把连接卡写入日志、网页、Issue、截图说明或第三方服务。
 
 ```bash
-npx --yes @newwe/huahua@0.1.3 huahua pair '<connection_card>'
+npx --yes @newwe/huahua@0.1.4 huahua pair '<connection_card>'
 ```
 
 命令会等待用户在手机确认，并返回 `device_id`。保存这个 device id；后续命令会自动通过已保存的主机私钥恢复短期会话，不会再次要求连接卡或手机确认。
@@ -23,13 +23,13 @@ npx --yes @newwe/huahua@0.1.3 huahua pair '<connection_card>'
 先观察，再根据这次观察的 `observation_id` 执行一个动作。观察时应要求输出图片文件，并使用当前 AI 的本地图片阅读能力查看它；没有图片阅读能力时，不得根据 base64 文本猜测屏幕内容。
 
 ```bash
-npx --yes @newwe/huahua@0.1.3 huahua observe --device '<device_id>' --image-file /tmp/huahua-current.jpg
+npx --yes @newwe/huahua@0.1.4 huahua observe --device '<device_id>' --image-file /tmp/huahua-current.jpg
 ```
 
 观察返回 JSON，其中包含 `observation_id`、前台应用、屏幕尺寸和 `image_file`。示例点击：
 
 ```bash
-npx --yes @newwe/huahua@0.1.3 huahua command \
+npx --yes @newwe/huahua@0.1.4 huahua command \
   --device '<device_id>' --action tap --x 300 --y 800 \
   --observation-id '<observation_id>' --summary '点击搜索框'
 ```
