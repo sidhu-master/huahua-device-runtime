@@ -3,6 +3,8 @@ import test from "node:test";
 import { HuahuaLanClient, parseConnectionCard } from "../dist/index.js";
 import { HostIdentityStore } from "../dist/host-identity-store.js";
 import { DeviceProfileStore } from "../dist/device-profile-store.js";
+import { DeviceSessionManager } from "../dist/device-session-manager.js";
+import { runDirectCliCommand } from "../dist/cli-command-runner.js";
 import { generateKeyPairSync } from "node:crypto";
 import { mkdtemp, readFile, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -14,6 +16,14 @@ test("declares the official public package name", async () => {
   const manifest = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
 
   assert.equal(manifest.name, "@newwe/huahua");
+});
+
+test("ships a terminal-agent skill that uses the direct CLI instead of MCP configuration", async () => {
+  const skill = await readFile(new URL("../skills/huahua/SKILL.md", import.meta.url), "utf8");
+
+  assert.match(skill, /huahua pair/);
+  assert.match(skill, /huahua observe/);
+  assert.match(skill, /observation id/i);
 });
 
 test("parses the Android connection card format", () => {
@@ -53,6 +63,94 @@ test("persists a v2 device profile only after initial pairing succeeds", async (
   await store.save(profile);
 
   assert.deepEqual(await store.load("agent-device-a"), profile);
+});
+
+test("shared session manager pairs once and persists the reusable device profile", async () => {
+  const saved = [];
+  const manager = new DeviceSessionManager({
+    client: {
+      connect: async (card, hostId, hostName, publicKeySpki) => {
+        assert.equal(hostId, "host-a");
+        assert.equal(hostName, "Terminal AI");
+        assert.equal(publicKeySpki, "public-key");
+        return { card, hostId, accessToken: "short-token", expiresAtMs: 9999 };
+      },
+      resume: async () => { throw new Error("resume is not expected"); },
+    },
+    identities: { loadOrCreate: async () => ({ hostId: "host-a", privateKeyPem: "private-key", publicKeySpki: "public-key" }) },
+    profiles: {
+      save: async profile => saved.push(profile),
+      load: async () => undefined,
+    },
+  });
+
+  const v2CardText = cardText.replace("/v1?", "/v2?")
+    + `&device_id=${Buffer.from("agent-device-a").toString("base64url")}`
+    + `&discovery_service_type=${Buffer.from("_huahua-device-agent._tcp.").toString("base64url")}`;
+  const session = await manager.pair(v2CardText, "Terminal AI", 1);
+
+  assert.equal(session.accessToken, "short-token");
+  assert.deepEqual(saved, [{
+    deviceId: "agent-device-a",
+    displayName: "Pixel 9",
+    discoveryServiceType: "_huahua-device-agent._tcp.",
+    hostId: "host-a",
+  }]);
+});
+
+test("direct CLI resumes an approved device and writes the current observation image locally", async () => {
+  const lines = [];
+  const writes = [];
+  await runDirectCliCommand(["observe", "--device", "agent-device-a", "--image-file", "/tmp/screen.jpg"], {
+    sessions: {
+      resume: async deviceId => ({
+        hostId: "host-a", accessToken: "short-token", expiresAtMs: 9999,
+        card: { connectionId: "trusted-session", endpoint: "http://phone", bootstrapToken: "", displayName: "Pixel 9", expiresAtMs: 9999, deviceId },
+      }),
+    },
+    client: {
+      observe: async () => ({ id: "obs-1", capturedAtMs: 100, imageBase64: "AQI=", imageMimeType: "image/jpeg", foregroundApp: "com.example", screenWidth: 1080, screenHeight: 2400 }),
+      command: async () => { throw new Error("command is not expected"); },
+    },
+    writeImage: async (path, bytes) => writes.push({ path, bytes: [...bytes] }),
+    write: value => lines.push(value),
+  });
+
+  assert.deepEqual(writes, [{ path: "/tmp/screen.jpg", bytes: [1, 2] }]);
+  assert.deepEqual(JSON.parse(lines[0]), {
+    device_id: "agent-device-a",
+    device_name: "Pixel 9",
+    observation: {
+      observation_id: "obs-1",
+      captured_at_ms: 100,
+      image_mime_type: "image/jpeg",
+      image_file: "/tmp/screen.jpg",
+      foreground_app: "com.example",
+      screen_width: 1080,
+      screen_height: 2400,
+    },
+  });
+});
+
+test("direct CLI preserves the observation precondition for a tap", async () => {
+  let commandInput;
+  await runDirectCliCommand([
+    "command", "--device", "agent-device-a", "--action", "tap", "--x", "12", "--y", "34",
+    "--observation-id", "obs-1", "--summary", "点击搜索框",
+  ], {
+    sessions: { resume: async () => ({ hostId: "host-a", accessToken: "short-token", expiresAtMs: 9999, card: { connectionId: "trusted-session", endpoint: "http://phone", bootstrapToken: "", displayName: "Pixel 9", expiresAtMs: 9999, deviceId: "agent-device-a" } }) },
+    client: {
+      observe: async () => { throw new Error("observe is not expected"); },
+      command: async (_session, input) => {
+        commandInput = input;
+        return { outcome: "succeeded", detail: "手机操作已完成。" };
+      },
+    },
+    writeImage: async () => { throw new Error("image write is not expected"); },
+    write: () => {},
+  });
+
+  assert.deepEqual(commandInput, { action: "tap", x: 12, y: 34, stepSummary: "点击搜索框", expectedObservationId: "obs-1" });
 });
 
 test("resumes a trusted session through current LAN discovery instead of the old card endpoint", async () => {

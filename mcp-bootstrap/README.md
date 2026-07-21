@@ -1,17 +1,16 @@
-# HuAHua MCP bootstrap
+# HuAHua 设备适配器
 
-为 AI 主机提供同一局域网内的 MCP 设备接入：安全操控已安装 HuAHua 的手机。该包负责
-stdio MCP 传输、主机身份和短期会话；模型推理、云端控制、ADB 端口转发和任意命令执行
+为 AI 主机提供同一局域网内的设备接入：安全操控已安装 HuAHua 的手机。该包提供 stdio MCP
+和直接 CLI 两个入口，并共享主机身份和短期会话；模型推理、云端控制、ADB 端口转发和任意命令执行
 不在其职责范围内。手机仅接受已批准主机发起、且基于最新屏幕观察的操作。
 
 ## 技术框架
 
-`mcp-bootstrap` 是 AI 主机的设备 I/O 适配器。AI 负责理解任务、选择下一步和判断是否
-完成；本包将已批准手机的观察和有限动作封装为标准 stdio MCP 工具，并返回执行结果。
+本包是 AI 主机的设备 I/O 适配器。AI 负责理解任务、选择下一步和判断是否完成；已批准手机的观察和有限动作可以封装为标准 stdio MCP 工具，也可以通过 CLI 返回 JSON。
 
 ```mermaid
 flowchart LR
-    AI["AI 主脑"] -->|"MCP tool call"| MCP["@newwe/huahua\nNode.js 20+"]
+    AI["AI 主脑"] -->|"MCP tool call 或 CLI"| MCP["@newwe/huahua\nNode.js 20+"]
     MCP -->|"mDNS + 短期签名会话"| PHONE["HuAHua Android Device Agent"]
     PHONE -->|"复用"| ENGINE["HuAHua 执行引擎\n安全策略 / 接管 / 本地历史"]
     ENGINE --> UI["真实 Android 界面"]
@@ -80,7 +79,24 @@ HuAHua 设置中的“AI 控制此手机”应同时提供：
 私钥和设备发现信息；每次运行只重新交换短期控制会话。用户撤销主机、清空 HuAHua
 数据或换电脑时才需要新的连接卡和批准。
 
-## 安装与 MCP 配置
+## 直接 CLI：无需 MCP 配置
+
+对于能执行本地终端命令、但不能配置 MCP 的 AI，先运行一次配对：
+
+```bash
+npx --yes @newwe/huahua@0.1.2 huahua pair '<connection_card>'
+```
+
+手机批准后，命令会输出 `device_id`。后续观察和操作会自动恢复短期会话，不会再次要求连接卡或手机确认：
+
+```bash
+npx --yes @newwe/huahua@0.1.2 huahua observe --device '<device_id>' --image-file /tmp/huahua-current.jpg
+npx --yes @newwe/huahua@0.1.2 huahua command --device '<device_id>' --action tap --x 300 --y 800 --observation-id '<observation_id>' --summary '点击搜索框'
+```
+
+CLI 每次仅使用已保存的主机私钥和设备发现信息恢复短期会话；不会保存连接卡、固定局域网 IP 或访问令牌。包内 [Skill](./skills/huahua/SKILL.md) 说明了终端型 AI 的完整安全工作流。
+
+## MCP 配置
 
 发布到 npm 后，首次配对可以从支持 npm 的 AI 主机运行：
 
