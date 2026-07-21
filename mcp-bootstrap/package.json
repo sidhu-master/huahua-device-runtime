@@ -1,14 +1,16 @@
 {
   "name": "@newwe/huahua",
-  "version": "0.1.1",
-  "description": "Local LAN MCP bootstrap for a HuAHua device agent",
+  "version": "0.1.2",
+  "description": "Local LAN MCP and CLI adapter for a HuAHua device agent",
   "type": "module",
   "bin": {
+    "huahua": "dist/cli.js",
     "huahua-mcp": "dist/cli.js"
   },
   "exports": "./dist/index.js",
   "files": [
-    "dist"
+    "dist",
+    "skills"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",

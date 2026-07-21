@@ -1,31 +1,22 @@
 #!/usr/bin/env node
-import { HuahuaLanClient } from "./client.js";
-import { parseConnectionCard } from "./connection-card.js";
-import { DeviceProfileStore } from "./device-profile-store.js";
-import { HostIdentityStore } from "./host-identity-store.js";
+import { runDirectCliCommand } from "./cli-command-runner.js";
+import { DeviceSessionManager } from "./device-session-manager.js";
 import { startMcp } from "./index.js";
 
 const [, , command, ...argumentsList] = process.argv;
+const sessions = new DeviceSessionManager();
 
-if (command === "connect" && argumentsList[0]) {
-  const identity = await new HostIdentityStore().loadOrCreate();
-  const client = new HuahuaLanClient();
-  const card = parseConnectionCard(argumentsList[0]);
-  const session = await client.connect(card, identity.hostId, process.env.HUAHUA_HOST_NAME || "AI Host", identity.publicKeySpki);
-  if (card.deviceId && card.discoveryServiceType) {
-    await new DeviceProfileStore().save({ deviceId: card.deviceId, displayName: card.displayName, discoveryServiceType: card.discoveryServiceType, hostId: identity.hostId });
+try {
+  if (command === "connect" && argumentsList[0]) {
+    await startMcp(await sessions.pair(argumentsList[0], process.env.HUAHUA_HOST_NAME || "AI Host"));
+  } else if (command === "serve" && argumentsList[0] === "--device" && argumentsList[1]) {
+    await startMcp(await sessions.resume(argumentsList[1]));
+  } else if (command === "pair" || command === "observe" || command === "command") {
+    await runDirectCliCommand([command, ...argumentsList], { sessions });
+  } else {
+    throw new Error("用法：huahua-mcp connect <连接卡>；huahua-mcp serve --device <设备 ID>；或 huahua pair / observe / command。");
   }
-  await startMcp(session);
-} else if (command === "serve" && argumentsList[0] === "--device" && argumentsList[1]) {
-  const profile = await new DeviceProfileStore().load(argumentsList[1]);
-  if (!profile) {
-    console.error("没有找到这台手机的配置。请先在手机 HuAHua 中复制连接卡，并运行 huahua-mcp connect <连接卡>。");
-    process.exit(2);
-  }
-  const identity = await new HostIdentityStore().loadOrCreate();
-  const client = new HuahuaLanClient();
-  await startMcp(await client.resume(profile, identity));
-} else {
-  console.error("用法：huahua-mcp connect <HuAHua 连接卡>；或 huahua-mcp serve --device <设备 ID>");
-  process.exit(2);
+} catch (error) {
+  console.error(error instanceof Error ? error.message : "HuAHua 命令执行失败。");
+  process.exitCode = 2;
 }
