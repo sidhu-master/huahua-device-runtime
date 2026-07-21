@@ -5,6 +5,7 @@ import { HostIdentityStore } from "../dist/host-identity-store.js";
 import { DeviceProfileStore } from "../dist/device-profile-store.js";
 import { DeviceSessionManager } from "../dist/device-session-manager.js";
 import { runDirectCliCommand } from "../dist/cli-command-runner.js";
+import { resolveHostDisplayName } from "../dist/host-display-name.js";
 import { ActionRequiresFreshObservationError, ResilientDeviceSession } from "../dist/resilient-device-session.js";
 import { generateKeyPairSync } from "node:crypto";
 import { mkdtemp, readFile, stat } from "node:fs/promises";
@@ -17,6 +18,33 @@ test("declares the official public package name", async () => {
   const manifest = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
 
   assert.equal(manifest.name, "@newwe/huahua");
+});
+
+test("uses the system computer name by default while preserving an explicit host name", () => {
+  assert.equal(
+    resolveHostDisplayName({
+      configuredName: "Trae IDE (Mac)",
+      platform: "darwin",
+      readMacComputerName: () => "Sid的Mac mini",
+      readFallbackName: () => "homeassistant",
+    }),
+    "Trae IDE (Mac)",
+  );
+  assert.equal(
+    resolveHostDisplayName({
+      platform: "darwin",
+      readMacComputerName: () => "Sid的Mac mini",
+      readFallbackName: () => "homeassistant",
+    }),
+    "Sid的Mac mini",
+  );
+  assert.equal(
+    resolveHostDisplayName({
+      platform: "linux",
+      readFallbackName: () => "office-ai",
+    }),
+    "office-ai",
+  );
 });
 
 test("ships a terminal-agent skill that uses the direct CLI instead of MCP configuration", async () => {

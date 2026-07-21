@@ -88,14 +88,14 @@ HuAHua 设置中的“AI 控制此手机”应同时提供：
 对于能执行本地终端命令、但不能配置 MCP 的 AI，先运行一次配对：
 
 ```bash
-npx --yes @newwe/huahua@0.1.5 huahua pair '<connection_card>'
+npx --yes @newwe/huahua@0.1.6 huahua pair '<connection_card>'
 ```
 
 手机批准后，命令会输出 `device_id`。后续观察和操作会自动恢复短期会话，不会再次要求连接卡或手机确认：
 
 ```bash
-npx --yes @newwe/huahua@0.1.5 huahua observe --device '<device_id>' --image-file /tmp/huahua-current.jpg
-npx --yes @newwe/huahua@0.1.5 huahua command --device '<device_id>' --action tap --x 300 --y 800 --observation-id '<observation_id>' --summary '点击搜索框'
+npx --yes @newwe/huahua@0.1.6 huahua observe --device '<device_id>' --image-file /tmp/huahua-current.jpg
+npx --yes @newwe/huahua@0.1.6 huahua command --device '<device_id>' --action tap --x 300 --y 800 --observation-id '<observation_id>' --summary '点击搜索框'
 ```
 
 CLI 每次仅使用已保存的主机私钥和设备发现信息恢复短期会话；不会保存连接卡、固定局域网 IP 或访问令牌。包内 [Skill](./skills/huahua/SKILL.md) 说明了终端型 AI 的完整安全工作流。

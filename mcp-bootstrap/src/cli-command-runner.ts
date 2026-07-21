@@ -1,6 +1,7 @@
 import { writeFile } from "node:fs/promises";
 import { DeviceCommandInput, DeviceCommandResponse, DeviceObservation, DeviceSession, HuahuaLanClient } from "./client.js";
 import { DeviceSessionManager } from "./device-session-manager.js";
+import { resolveHostDisplayName } from "./host-display-name.js";
 import { ActionRequiresFreshObservationError, ResilientDeviceSession } from "./resilient-device-session.js";
 
 type SessionProvider = Pick<DeviceSessionManager, "pair" | "resume">;
@@ -24,7 +25,9 @@ export async function runDirectCliCommand(argumentsList: string[], dependencies:
 
   if (command === "pair") {
     const card = required(rawArgs[0], "连接卡");
-    const session = await sessions.pair(card, dependencies.hostName ?? process.env.HUAHUA_HOST_NAME ?? "Terminal AI");
+    const session = await sessions.pair(card, resolveHostDisplayName({
+      configuredName: dependencies.hostName ?? process.env.HUAHUA_HOST_NAME,
+    }));
     write(JSON.stringify({ device_id: session.card.deviceId ?? null, device_name: session.card.displayName }));
     return;
   }
