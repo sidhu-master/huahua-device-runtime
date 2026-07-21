@@ -41,8 +41,8 @@ flowchart LR
 换取新的短期令牌。撤销主机、清空 HuAHua 数据或换电脑会使这条信任链失效，届时才需要
 新的连接卡和手机批准。
 
-如果手机的 DHCP 地址在同一局域网内变化，观察请求会重新发现手机、恢复短期会话后重试
-一次。动作请求不会自动重放；恢复后会要求 AI 重新观察当前页面，避免重复点击或输入。
+如果手机的 DHCP 地址变化或短期控制令牌过期，观察请求会重新发现手机、恢复短期会话后
+重试一次。动作请求不会自动重放；恢复后会要求 AI 重新观察当前页面，避免重复点击或输入。
 
 ### 非目标
 
@@ -87,14 +87,14 @@ HuAHua 设置中的“AI 控制此手机”应同时提供：
 对于能执行本地终端命令、但不能配置 MCP 的 AI，先运行一次配对：
 
 ```bash
-npx --yes @newwe/huahua@0.1.3 huahua pair '<connection_card>'
+npx --yes @newwe/huahua@0.1.4 huahua pair '<connection_card>'
 ```
 
 手机批准后，命令会输出 `device_id`。后续观察和操作会自动恢复短期会话，不会再次要求连接卡或手机确认：
 
 ```bash
-npx --yes @newwe/huahua@0.1.3 huahua observe --device '<device_id>' --image-file /tmp/huahua-current.jpg
-npx --yes @newwe/huahua@0.1.3 huahua command --device '<device_id>' --action tap --x 300 --y 800 --observation-id '<observation_id>' --summary '点击搜索框'
+npx --yes @newwe/huahua@0.1.4 huahua observe --device '<device_id>' --image-file /tmp/huahua-current.jpg
+npx --yes @newwe/huahua@0.1.4 huahua command --device '<device_id>' --action tap --x 300 --y 800 --observation-id '<observation_id>' --summary '点击搜索框'
 ```
 
 CLI 每次仅使用已保存的主机私钥和设备发现信息恢复短期会话；不会保存连接卡、固定局域网 IP 或访问令牌。包内 [Skill](./skills/huahua/SKILL.md) 说明了终端型 AI 的完整安全工作流。

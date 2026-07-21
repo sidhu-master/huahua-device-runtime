@@ -50,7 +50,7 @@ export class ResilientDeviceSession {
   }
 
   private async recoverAfterTransportFailure(error: unknown): Promise<void> {
-    if (!isTransportFailure(error)) throw error;
+    if (!isRecoverableSessionFailure(error)) throw error;
     const deviceId = this.session.card.deviceId;
     if (!deviceId || !this.sessions) throw error;
     const pending = this.recovery ?? this.sessions.resume(deviceId);
@@ -63,8 +63,8 @@ export class ResilientDeviceSession {
   }
 }
 
-function isTransportFailure(error: unknown): boolean {
+function isRecoverableSessionFailure(error: unknown): boolean {
   if (error instanceof TypeError) return true;
   if (!(error instanceof Error)) return false;
-  return /fetch failed|network|ECONNREFUSED|ECONNRESET|EHOSTUNREACH|ENETUNREACH|ETIMEDOUT/i.test(error.message);
+  return /fetch failed|network|ECONNREFUSED|ECONNRESET|EHOSTUNREACH|ENETUNREACH|ETIMEDOUT|此电脑未获手机授权或授权已被撤销/i.test(error.message);
 }

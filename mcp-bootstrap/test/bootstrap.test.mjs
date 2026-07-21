@@ -201,6 +201,24 @@ test("retries one observation after a LAN address change by resuming the trusted
   assert.deepEqual(observedEndpoints, ["http://192.168.1.10:38473", "http://192.168.1.55:45678"]);
 });
 
+test("renews an expired trusted-session token before retrying an observation", async () => {
+  const original = trustedSession("http://192.168.1.10:38473");
+  let observationAttempts = 0;
+  const recovery = new ResilientDeviceSession(original, {
+    resume: async () => trustedSession("http://192.168.1.10:38473"),
+  }, {
+    observe: async () => {
+      observationAttempts += 1;
+      if (observationAttempts === 1) throw new Error("此电脑未获手机授权或授权已被撤销，请在手机中重新连接。");
+      return observation("obs-after-token-renewal");
+    },
+    command: async () => { throw new Error("command is not expected"); },
+  });
+
+  assert.equal((await recovery.observe()).id, "obs-after-token-renewal");
+  assert.equal(observationAttempts, 2);
+});
+
 test("never retries a device action after a LAN address change", async () => {
   const original = trustedSession("http://192.168.1.10:38473");
   let actionAttempts = 0;
