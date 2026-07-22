@@ -414,10 +414,11 @@ test("uses the v2 observation route and only the returned short token after resu
 
 test("reports the trusted host heartbeat through the v2 route", async () => {
   const session = trustedSession("http://192.168.1.55:45678", 9999, "trusted-token");
+  const manifest = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
   const client = new HuahuaLanClient(async (url, init) => {
     assert.equal(url, "http://192.168.1.55:45678/v2/trusted-sessions/heartbeat");
     assert.equal(init.headers.authorization, "Bearer trusted-token");
-    assert.deepEqual(JSON.parse(init.body), { hostId: "host-a" });
+    assert.deepEqual(JSON.parse(init.body), { hostId: "host-a", mcpVersion: manifest.version });
     return new Response(JSON.stringify({ ok: true }));
   });
 
