@@ -4,7 +4,7 @@ type SessionResumer = {
   resume(deviceId: string): Promise<DeviceSession>;
 };
 
-type DeviceClient = Pick<HuahuaLanClient, "observe" | "command">;
+type DeviceClient = Pick<HuahuaLanClient, "observe" | "command"> & Partial<Pick<HuahuaLanClient, "heartbeat">>;
 
 /** Returned after transport recovery when repeating the original action would be unsafe. */
 export class ActionRequiresFreshObservationError extends Error {
@@ -30,6 +30,17 @@ export class ResilientDeviceSession {
 
   get current(): DeviceSession {
     return this.session;
+  }
+
+  async heartbeat(): Promise<void> {
+    if (!this.client.heartbeat) return;
+    await this.refreshBeforeExpiry();
+    try {
+      await this.client.heartbeat(this.session);
+    } catch (error) {
+      await this.recoverAfterTransportFailure(error);
+      await this.client.heartbeat(this.session);
+    }
   }
 
   async observe(): Promise<DeviceObservation> {

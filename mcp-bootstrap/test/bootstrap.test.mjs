@@ -7,6 +7,7 @@ import { DeviceSessionManager } from "../dist/device-session-manager.js";
 import { runDirectCliCommand } from "../dist/cli-command-runner.js";
 import { resolveHostDisplayName } from "../dist/host-display-name.js";
 import { ActionRequiresFreshObservationError, ResilientDeviceSession } from "../dist/resilient-device-session.js";
+import { TrustedSessionHeartbeat } from "../dist/trusted-session-heartbeat.js";
 import { generateKeyPairSync } from "node:crypto";
 import { mkdtemp, readFile, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -18,6 +19,32 @@ test("declares the official public package name", async () => {
   const manifest = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
 
   assert.equal(manifest.name, "@newwe/huahua");
+});
+
+test("keeps a trusted phone connection alive while the MCP process is running", async () => {
+  let ticks = 0;
+  let scheduled;
+  let cleared;
+  const heartbeat = new TrustedSessionHeartbeat(
+    { heartbeat: async () => { ticks += 1; } },
+    {
+      intervalMs: 10,
+      setIntervalImpl: callback => {
+        scheduled = callback;
+        return "timer";
+      },
+      clearIntervalImpl: timer => { cleared = timer; },
+    },
+  );
+
+  heartbeat.start();
+  await Promise.resolve();
+  scheduled();
+  await Promise.resolve();
+  heartbeat.stop();
+
+  assert.equal(ticks, 2);
+  assert.equal(cleared, "timer");
 });
 
 test("uses the system computer name by default while preserving an explicit host name", () => {
@@ -383,6 +410,18 @@ test("uses the v2 observation route and only the returned short token after resu
   });
 
   await client.observe(session);
+});
+
+test("reports the trusted host heartbeat through the v2 route", async () => {
+  const session = trustedSession("http://192.168.1.55:45678", 9999, "trusted-token");
+  const client = new HuahuaLanClient(async (url, init) => {
+    assert.equal(url, "http://192.168.1.55:45678/v2/trusted-sessions/heartbeat");
+    assert.equal(init.headers.authorization, "Bearer trusted-token");
+    assert.deepEqual(JSON.parse(init.body), { hostId: "host-a" });
+    return new Response(JSON.stringify({ ok: true }));
+  });
+
+  await client.heartbeat(session);
 });
 
 test("waits for explicit phone approval before returning a device session", async () => {

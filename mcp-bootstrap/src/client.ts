@@ -76,6 +76,14 @@ export class HuahuaLanClient {
     };
   }
   async health(card: ConnectionCard) { return this.get(card, "/v1/health"); }
+  async heartbeat(session: DeviceSession): Promise<void> {
+    if (apiVersion(session.card) !== "v2") return;
+    await this.json(await this.fetchImpl(`${session.card.endpoint}/v2/trusted-sessions/heartbeat`, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${session.accessToken}` },
+      body: JSON.stringify({ hostId: session.hostId }),
+    }));
+  }
   async observe(session: DeviceSession): Promise<DeviceObservation> {
     const version = apiVersion(session.card);
     const payload = await this.json(await this.fetchImpl(
