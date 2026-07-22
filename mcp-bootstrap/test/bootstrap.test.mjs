@@ -7,7 +7,7 @@ import { DeviceSessionManager } from "../dist/device-session-manager.js";
 import { runDirectCliCommand } from "../dist/cli-command-runner.js";
 import { resolveHostDisplayName } from "../dist/host-display-name.js";
 import { ActionRequiresFreshObservationError, ResilientDeviceSession } from "../dist/resilient-device-session.js";
-import { TrustedSessionHeartbeat } from "../dist/trusted-session-heartbeat.js";
+import { TrustedSessionHeartbeat, attachTrustedSessionHeartbeatToTransport } from "../dist/trusted-session-heartbeat.js";
 import { generateKeyPairSync } from "node:crypto";
 import { mkdtemp, readFile, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -45,6 +45,22 @@ test("keeps a trusted phone connection alive while the MCP process is running", 
 
   assert.equal(ticks, 2);
   assert.equal(cleared, "timer");
+});
+
+test("keeps the heartbeat running after MCP startup and stops it when the stdio transport closes", () => {
+  let starts = 0;
+  let stops = 0;
+  const transport = {};
+
+  attachTrustedSessionHeartbeatToTransport(
+    { start: () => { starts += 1; }, stop: () => { stops += 1; } },
+    transport,
+  );
+
+  assert.equal(starts, 1);
+  assert.equal(stops, 0);
+  transport.onclose();
+  assert.equal(stops, 1);
 });
 
 test("uses the system computer name by default while preserving an explicit host name", () => {

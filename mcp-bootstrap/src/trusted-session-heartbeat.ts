@@ -8,6 +8,10 @@ export type TrustedSessionHeartbeatOptions = {
   clearIntervalImpl?: (handle: IntervalHandle) => void;
 };
 
+type CloseAwareTransport = {
+  onclose?: () => void;
+};
+
 /** Keeps the phone's live-connection lease fresh for the lifetime of one MCP process. */
 export class TrustedSessionHeartbeat {
   private readonly intervalMs: number;
@@ -39,4 +43,20 @@ export class TrustedSessionHeartbeat {
   private tick(): void {
     void this.device.heartbeat().catch(() => undefined);
   }
+}
+
+/** Keeps the lease alive after MCP startup and releases it only when its transport closes. */
+export function attachTrustedSessionHeartbeatToTransport(
+  heartbeat: Pick<TrustedSessionHeartbeat, "start" | "stop">,
+  transport: CloseAwareTransport,
+): void {
+  const previousOnClose = transport.onclose;
+  transport.onclose = () => {
+    try {
+      previousOnClose?.();
+    } finally {
+      heartbeat.stop();
+    }
+  };
+  heartbeat.start();
 }

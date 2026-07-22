@@ -3,7 +3,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 import { DeviceCommandResponse, DeviceObservation, DeviceSession, HuahuaLanClient } from "./client.js";
 import { ActionRequiresFreshObservationError, ResilientDeviceSession } from "./resilient-device-session.js";
-import { TrustedSessionHeartbeat } from "./trusted-session-heartbeat.js";
+import { attachTrustedSessionHeartbeatToTransport, TrustedSessionHeartbeat } from "./trusted-session-heartbeat.js";
 
 type SessionResumer = { resume(deviceId: string): Promise<DeviceSession> };
 
@@ -27,12 +27,9 @@ export async function startMcp(session: DeviceSession, client = new HuahuaLanCli
   server.tool("device_home", "Go Home only after observing the current approved HuAHua phone screen.", actionSchema({}), async ({ step_summary, observation_id }) => commandResult(device, { action: "home", stepSummary: step_summary, expectedObservationId: observation_id }));
   server.tool("device_launch_app", "Launch an installed Android package only after observing the current approved HuAHua phone screen.", actionSchema({ packageName: z.string().min(1) }), async ({ packageName, step_summary, observation_id }) => commandResult(device, { action: "launch", packageName, stepSummary: step_summary, expectedObservationId: observation_id }));
   server.tool("device_input_text", "Input ordinary non-sensitive text into the currently focused field. Passwords, verification codes, payments, and confirmations stay on the phone.", actionSchema({ text: z.string().min(1).max(4096) }), async ({ text, step_summary, observation_id }) => commandResult(device, { action: "input_text", text, stepSummary: step_summary, expectedObservationId: observation_id }));
-  heartbeat.start();
-  try {
-    await server.connect(new StdioServerTransport());
-  } finally {
-    heartbeat.stop();
-  }
+  const transport = new StdioServerTransport();
+  attachTrustedSessionHeartbeatToTransport(heartbeat, transport);
+  await server.connect(transport);
 }
 
 function actionSchema<T extends z.ZodRawShape>(shape: T): T & { step_summary: z.ZodString; observation_id: z.ZodString } {
