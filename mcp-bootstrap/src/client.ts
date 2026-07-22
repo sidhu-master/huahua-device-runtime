@@ -2,6 +2,7 @@ import { ConnectionCard } from "./connection-card.js";
 import { DeviceProfile } from "./device-profile-store.js";
 import { HostIdentity } from "./host-identity-store.js";
 import { LanDiscovery, MdnsLanDiscovery } from "./lan-discovery.js";
+import { MCP_PACKAGE_VERSION } from "./package-version.js";
 import { sign } from "node:crypto";
 
 export type DeviceSession = { card: ConnectionCard; hostId: string; accessToken: string; expiresAtMs: number };
@@ -81,7 +82,7 @@ export class HuahuaLanClient {
     await this.json(await this.fetchImpl(`${session.card.endpoint}/v2/trusted-sessions/heartbeat`, {
       method: "POST",
       headers: { "content-type": "application/json", authorization: `Bearer ${session.accessToken}` },
-      body: JSON.stringify({ hostId: session.hostId }),
+      body: JSON.stringify({ hostId: session.hostId, mcpVersion: MCP_PACKAGE_VERSION }),
     }));
   }
   async observe(session: DeviceSession): Promise<DeviceObservation> {
