@@ -63,6 +63,30 @@ test("keeps the heartbeat running after MCP startup and stops it when the stdio 
   assert.equal(stops, 1);
 });
 
+test("retries trusted discovery after the MCP starts while the phone is offline", async () => {
+  let attempts = 0;
+  const recovery = ResilientDeviceSession.forTrustedDevice("agent-device-a", {
+    resume: async deviceId => {
+      attempts += 1;
+      assert.equal(deviceId, "agent-device-a");
+      if (attempts === 1) throw new TypeError("fetch failed");
+      return trustedSession("http://192.168.1.55:45678");
+    },
+  }, {
+    observe: async () => observation("unused"),
+    command: async () => ({ outcome: "succeeded", detail: "unused" }),
+    heartbeat: async () => {},
+  });
+
+  assert.equal(recovery.connectionStatus.state, "reconnecting");
+  await assert.rejects(() => recovery.heartbeat(), /fetch failed/);
+  await recovery.heartbeat();
+
+  assert.equal(attempts, 2);
+  assert.equal(recovery.connectionStatus.state, "connected");
+  assert.equal(recovery.current.card.endpoint, "http://192.168.1.55:45678");
+});
+
 test("uses the system computer name by default while preserving an explicit host name", () => {
   assert.equal(
     resolveHostDisplayName({
@@ -181,7 +205,7 @@ test("direct CLI resumes an approved device and writes the current observation i
       }),
     },
     client: {
-      observe: async () => ({ id: "obs-1", capturedAtMs: 100, imageBase64: "AQI=", imageMimeType: "image/jpeg", foregroundApp: "com.example", screenWidth: 1080, screenHeight: 2400 }),
+      observe: async () => observation("obs-1"),
       command: async () => { throw new Error("command is not expected"); },
     },
     writeImage: async (path, bytes) => writes.push({ path, bytes: [...bytes] }),
@@ -198,8 +222,10 @@ test("direct CLI resumes an approved device and writes the current observation i
       image_mime_type: "image/jpeg",
       image_file: "/tmp/screen.jpg",
       foreground_app: "com.example",
-      screen_width: 1080,
-      screen_height: 2400,
+      coordinate_space: "normalized_0_to_1000",
+      visual_layout: "single",
+      ui_tree_status: "unavailable",
+      ui_tree: [],
     },
   });
 });
@@ -223,6 +249,24 @@ test("direct CLI preserves the observation precondition for a tap", async () => 
   });
 
   assert.deepEqual(commandInput, { action: "tap", x: 12, y: 34, stepSummary: "点击搜索框", expectedObservationId: "obs-1" });
+});
+
+test("reports remote task completion through the trusted LAN session", async () => {
+  const requests = [];
+  const client = new HuahuaLanClient(async (url, init) => {
+    requests.push({ url, init });
+    return new Response(JSON.stringify({ ok: true }), { status: 200, headers: { "content-type": "application/json" } });
+  });
+
+  await client.complete(trustedSession("http://192.168.1.10:38473"), "抖音搜索已完成");
+
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].url, "http://192.168.1.10:38473/v3/tasks/complete");
+  assert.equal(requests[0].init.headers.authorization, "Bearer short-token");
+  assert.deepEqual(JSON.parse(requests[0].init.body), {
+    hostId: "host-a",
+    summary: "抖音搜索已完成",
+  });
 });
 
 test("direct CLI reports re-observation instead of replaying an action after recovery", async () => {
@@ -406,10 +450,13 @@ function trustedSession(endpoint, expiresAtMs = Date.now() + 10 * 60_000, access
 }
 
 function observation(id) {
-  return { id, capturedAtMs: 100, imageBase64: "AQI=", imageMimeType: "image/jpeg", foregroundApp: "com.example", screenWidth: 1080, screenHeight: 2400 };
+  return {
+    id, capturedAtMs: 100, imageBase64: "AQI=", imageMimeType: "image/jpeg", foregroundApp: "com.example",
+    coordinateSpace: "normalized_0_to_1000", visualLayout: "single", uiTreeStatus: "unavailable", uiTree: [],
+  };
 }
 
-test("uses the v2 observation route and only the returned short token after resume", async () => {
+test("uses the v3 normalized observation route and only the returned short token after resume", async () => {
   const session = {
     hostId: "host-a",
     accessToken: "short-token",
@@ -420,9 +467,9 @@ test("uses the v2 observation route and only the returned short token after resu
     },
   };
   const client = new HuahuaLanClient(async (url, init) => {
-    assert.equal(url, "http://192.168.1.55:45678/v2/observe?host_id=host-a");
+    assert.equal(url, "http://192.168.1.55:45678/v3/observe?host_id=host-a");
     assert.equal(init.headers.authorization, "Bearer short-token");
-    return new Response(JSON.stringify({ ok: true, observation_id: "obs-1", captured_at_ms: 1, image_base64: "", image_mime_type: "image/jpeg", foreground_app: "", screen_width: 1, screen_height: 1 }));
+    return new Response(JSON.stringify({ ok: true, observation_id: "obs-1", captured_at_ms: 1, image_base64: "", image_mime_type: "image/jpeg", foreground_app: "", visual_layout: "single", coordinate_space: "normalized_0_to_1000", ui_tree_status: "unavailable", ui_tree: [] }));
   });
 
   await client.observe(session);
@@ -456,7 +503,7 @@ test("reads an authorized current-screen observation", async () => {
   const card = parseConnectionCard(cardText, 1);
   const session = { card, hostId: "host-a", accessToken: "host-token", expiresAtMs: 9999 };
   const client = new HuahuaLanClient(async (url, init) => {
-    assert.equal(url, `${card.endpoint}/v1/observe?host_id=host-a`);
+    assert.equal(url, `${card.endpoint}/v3/observe?host_id=host-a`);
     assert.equal(init.headers.authorization, "Bearer host-token");
     return new Response(JSON.stringify({
       ok: true,
@@ -465,8 +512,10 @@ test("reads an authorized current-screen observation", async () => {
       image_base64: "AQI=",
       image_mime_type: "image/jpeg",
       foreground_app: "com.example.app",
-      screen_width: 1080,
-      screen_height: 2400,
+      visual_layout: "single",
+      coordinate_space: "normalized_0_to_1000",
+      ui_tree_status: "unavailable",
+      ui_tree: [],
     }));
   });
 

@@ -4,7 +4,7 @@ type SessionResumer = {
   resume(deviceId: string): Promise<DeviceSession>;
 };
 
-type DeviceClient = Pick<HuahuaLanClient, "observe" | "command"> & Partial<Pick<HuahuaLanClient, "heartbeat">>;
+type DeviceClient = Pick<HuahuaLanClient, "observe" | "command"> & Partial<Pick<HuahuaLanClient, "heartbeat" | "complete">>;
 
 /** Returned after transport recovery when repeating the original action would be unsafe. */
 export class ActionRequiresFreshObservationError extends Error {
@@ -20,47 +20,78 @@ export class ActionRequiresFreshObservationError extends Error {
  */
 export class ResilientDeviceSession {
   private recovery: Promise<DeviceSession> | undefined;
+  private readonly trustedDeviceId: string | undefined;
 
   constructor(
-    private session: DeviceSession,
+    private session: DeviceSession | undefined,
     private readonly sessions: SessionResumer | undefined,
     private readonly client: DeviceClient = new HuahuaLanClient(),
     private readonly nowMs: () => number = Date.now,
-  ) {}
+    trustedDeviceId?: string,
+  ) {
+    this.trustedDeviceId = trustedDeviceId ?? session?.card.deviceId;
+  }
+
+  /** Starts from a previous pairing without requiring the phone to be discoverable yet. */
+  static forTrustedDevice(
+    deviceId: string,
+    sessions: SessionResumer,
+    client: DeviceClient = new HuahuaLanClient(),
+  ): ResilientDeviceSession {
+    return new ResilientDeviceSession(undefined, sessions, client, Date.now, deviceId);
+  }
 
   get current(): DeviceSession {
+    if (!this.session) {
+      throw new Error("正在等待已配对手机重新出现在局域网。请确认手机已开启 AI 控制此手机，且两台设备位于同一 Wi‑Fi。");
+    }
     return this.session;
   }
 
-  async heartbeat(): Promise<void> {
-    if (!this.client.heartbeat) return;
-    await this.refreshBeforeExpiry();
+  get connectionStatus(): { state: "connected" | "reconnecting"; deviceId: string | undefined } {
+    return {
+      state: this.session ? "connected" : "reconnecting",
+      deviceId: this.trustedDeviceId,
+    };
+  }
+
+  async heartbeat(): Promise<Record<string, unknown>> {
+    await this.ensureConnected();
+    if (!this.client.heartbeat) return {};
     try {
-      await this.client.heartbeat(this.session);
+      return await this.client.heartbeat(this.current);
     } catch (error) {
       await this.recoverAfterTransportFailure(error);
-      await this.client.heartbeat(this.session);
+      return await this.client.heartbeat(this.current);
     }
   }
 
   async observe(): Promise<DeviceObservation> {
-    await this.refreshBeforeExpiry();
+    await this.ensureConnected();
     try {
-      return await this.client.observe(this.session);
+      return await this.client.observe(this.current);
     } catch (error) {
       await this.recoverAfterTransportFailure(error);
-      return this.client.observe(this.session);
+      return this.client.observe(this.current);
     }
   }
 
   async command(input: DeviceCommandInput): Promise<DeviceCommandResponse> {
-    await this.refreshBeforeExpiry();
+    await this.ensureConnected();
     try {
-      return await this.client.command(this.session, input);
+      return await this.client.command(this.current, input);
     } catch (error) {
       await this.recoverAfterTransportFailure(error);
       throw new ActionRequiresFreshObservationError();
     }
+  }
+
+  async complete(summary: string): Promise<void> {
+    if (!this.client.complete) {
+      throw new Error("当前客户端不支持同步任务完成状态。请更新 HuAHua MCP 后重试。");
+    }
+    await this.ensureConnected();
+    await this.client.complete(this.current, summary);
   }
 
   private async recoverAfterTransportFailure(error: unknown): Promise<void> {
@@ -69,12 +100,16 @@ export class ResilientDeviceSession {
   }
 
   private async refreshBeforeExpiry(): Promise<void> {
-    if (this.session.expiresAtMs > this.nowMs() + SESSION_RENEWAL_WINDOW_MS) return;
+    if (this.session && this.session.expiresAtMs > this.nowMs() + SESSION_RENEWAL_WINDOW_MS) return;
     await this.resumeTrustedSession();
   }
 
+  private async ensureConnected(): Promise<void> {
+    await this.refreshBeforeExpiry();
+  }
+
   private async resumeTrustedSession(): Promise<void> {
-    const deviceId = this.session.card.deviceId;
+    const deviceId = this.trustedDeviceId;
     if (!deviceId || !this.sessions) {
       throw new Error("当前短期控制会话无法续连，请在手机中重新连接。");
     }
