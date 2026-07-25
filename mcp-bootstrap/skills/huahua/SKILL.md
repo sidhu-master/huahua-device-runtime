@@ -13,7 +13,7 @@
 从用户提供的自述卡中读取 `connection_card`，只在本机终端中使用它。不得把连接卡写入日志、网页、Issue、截图说明或第三方服务。
 
 ```bash
-npx --yes @newwe/huahua@0.1.6 huahua pair '<connection_card>'
+npx --yes @newwe/huahua@0.2.0 huahua pair '<connection_card>'
 ```
 
 命令会等待用户在手机确认，并返回 `device_id`。保存这个 device id；后续命令会自动通过已保存的主机私钥恢复短期会话，不会再次要求连接卡或手机确认。
@@ -23,21 +23,22 @@ npx --yes @newwe/huahua@0.1.6 huahua pair '<connection_card>'
 先观察，再根据这次观察的 `observation_id` 执行一个动作。观察时应要求输出图片文件，并使用当前 AI 的本地图片阅读能力查看它；没有图片阅读能力时，不得根据 base64 文本猜测屏幕内容。
 
 ```bash
-npx --yes @newwe/huahua@0.1.6 huahua observe --device '<device_id>' --image-file /tmp/huahua-current.jpg
+npx --yes @newwe/huahua@0.2.0 huahua observe --device '<device_id>' --image-file /tmp/huahua-current.jpg
 ```
 
-观察返回 JSON，其中包含 `observation_id`、前台应用、屏幕尺寸和 `image_file`。示例点击：
+观察返回 JSON，其中包含 `observation_id`、前台应用、视觉布局和 `image_file`。所有坐标均为当前视觉输入上的 `0–1000` 归一化坐标；如果 `visual_layout` 为 `before_current`，只能操作右侧 CURRENT 半屏（`x >= 500`）。示例点击：
 
 ```bash
-npx --yes @newwe/huahua@0.1.6 huahua command \
+npx --yes @newwe/huahua@0.2.0 huahua command \
   --device '<device_id>' --action tap --x 300 --y 800 \
   --observation-id '<observation_id>' --summary '点击搜索框'
 ```
 
 支持的 action：
 
-- `tap`：需要 `--x --y`。
-- `swipe`：需要 `--x --y --end-x --end-y`。
+- `tap`：需要 `--x --y`，范围都是 0–1000。
+- `tap_element`：需要 `--ref`，优先使用 observation 返回的 `ui_tree` 元素引用。
+- `swipe`：需要 `--x --y --end-x --end-y`，范围都是 0–1000。
 - `input_text`：需要 `--text`。
 - `launch`：需要 `--package`。
 - `back`、`home`：不需要额外动作参数。

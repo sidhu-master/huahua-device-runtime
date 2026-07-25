@@ -79,4 +79,58 @@ class InteractiveUiTreeProjectorTest {
 
         assertEquals("验证码 123456", result.nodes.single().label)
     }
+
+    @Test
+    fun omitsGenericIdOnlyLayoutWhenItsActionableChildIsAlreadyVisible() {
+        val result = InteractiveUiTreeProjector().project(
+            rawNodes = listOf(
+                RawUiNode(
+                    index = 0,
+                    role = "android.widget.FrameLayout",
+                    identifier = "com.example:id/content",
+                    bounds = UiTreeBounds(0, 0, 1080, 480),
+                ),
+                RawUiNode(
+                    index = 1,
+                    parentIndex = 0,
+                    role = "android.widget.Button",
+                    label = "提交",
+                    identifier = "com.example:id/submit",
+                    bounds = UiTreeBounds(40, 320, 220, 80),
+                    clickable = true,
+                ),
+            ),
+            foregroundPackage = "com.example",
+            capturedAtMs = 1L,
+        )
+
+        assertEquals(listOf(1), result.nodes.map { it.sourceIndex })
+        assertEquals("提交", result.nodes.single().label)
+    }
+
+    @Test
+    fun omitsScrollableContainerWithoutActionableDescendantButKeepsCollectionText() {
+        val result = InteractiveUiTreeProjector().project(
+            rawNodes = listOf(
+                RawUiNode(
+                    index = 0,
+                    role = "androidx.recyclerview.widget.RecyclerView",
+                    bounds = UiTreeBounds(0, 0, 1080, 1600),
+                    scrollable = true,
+                ),
+                RawUiNode(
+                    index = 1,
+                    parentIndex = 0,
+                    role = "android.widget.TextView",
+                    label = "正在加载",
+                    bounds = UiTreeBounds(40, 80, 220, 60),
+                ),
+            ),
+            foregroundPackage = "com.example",
+            capturedAtMs = 1L,
+        )
+
+        assertEquals(listOf(1), result.nodes.map { it.sourceIndex })
+        assertEquals("正在加载", result.nodes.single().label)
+    }
 }

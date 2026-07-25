@@ -45,6 +45,11 @@ flowchart LR
 发现手机并恢复短期会话。动作请求不会自动重放；恢复后会要求 AI 重新观察当前页面，避免
 重复点击或输入。以上过程不需要新的连接卡或再次在手机确认。
 
+已配置的 MCP 通过 `serve --device` 启动时，即使手机暂时不在局域网内也不会退出：它会以
+心跳周期继续发现已经配对的手机。手机端点击“重新连接”会刷新局域网广播；已运行 MCP 会在
+下一次发现成功后自动恢复心跳，手机随即从“等待电脑连接”变为“已连接”。此阶段不包含电脑
+常驻服务：关闭 IDE 或 MCP 进程后，仍需重新启动 MCP，后续才由可选后台 Bridge 解决。
+
 ### 非目标
 
 - 不包含或调用任何模型 API；MCP 是工具，不是 AI 主脑。
@@ -88,14 +93,14 @@ HuAHua 设置中的“AI 控制此手机”应同时提供：
 对于能执行本地终端命令、但不能配置 MCP 的 AI，先运行一次配对：
 
 ```bash
-npx --yes @newwe/huahua@0.1.6 huahua pair '<connection_card>'
+npx --yes @newwe/huahua@0.2.0 huahua pair '<connection_card>'
 ```
 
 手机批准后，命令会输出 `device_id`。后续观察和操作会自动恢复短期会话，不会再次要求连接卡或手机确认：
 
 ```bash
-npx --yes @newwe/huahua@0.1.6 huahua observe --device '<device_id>' --image-file /tmp/huahua-current.jpg
-npx --yes @newwe/huahua@0.1.6 huahua command --device '<device_id>' --action tap --x 300 --y 800 --observation-id '<observation_id>' --summary '点击搜索框'
+npx --yes @newwe/huahua@0.2.0 huahua observe --device '<device_id>' --image-file /tmp/huahua-current.jpg
+npx --yes @newwe/huahua@0.2.0 huahua command --device '<device_id>' --action tap --x 300 --y 800 --observation-id '<observation_id>' --summary '点击搜索框'
 ```
 
 CLI 每次仅使用已保存的主机私钥和设备发现信息恢复短期会话；不会保存连接卡、固定局域网 IP 或访问令牌。包内 [Skill](./skills/huahua/SKILL.md) 说明了终端型 AI 的完整安全工作流。
@@ -127,6 +132,9 @@ npm exec --yes @newwe/huahua@<published-version> serve --device '<device_id>'
 
 主机配置保存在 `~/.config/huahua-mcp`，目录权限为 `0700`，文件权限为 `0600`；
 配置不持久化手机访问令牌或固定局域网 IP。
+
+当手机暂时不可发现时，MCP 仍会保持运行；`device_status` 会返回 `reconnecting`，直到可信
+会话恢复。无需让 AI 发送“重新连接”命令，也不要重新生成连接卡。
 
 ## 局域网发现与安全边界
 

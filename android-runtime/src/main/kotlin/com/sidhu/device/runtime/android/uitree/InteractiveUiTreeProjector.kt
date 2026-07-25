@@ -17,25 +17,39 @@ class InteractiveUiTreeProjector {
 
         fun hasActionableDescendant(node: RawUiNode): Boolean = actionableDescendants.getOrPut(node.index) {
             childrenByParent[node.index].orEmpty().any { child ->
-                isActionable(child) || hasActionableDescendant(child)
+                isDirectlyActionable(child) || hasActionableDescendant(child)
             }
         }
 
         fun hasActionableAncestor(node: RawUiNode): Boolean {
             var parent = node.parentIndex?.let(nodesByIndex::get)
             while (parent != null) {
-                if (isActionable(parent)) return true
+                if (isDirectlyActionable(parent)) return true
                 parent = parent.parentIndex?.let(nodesByIndex::get)
             }
             return false
         }
 
+        fun hasCollectionAncestor(node: RawUiNode): Boolean {
+            var parent = node.parentIndex?.let(nodesByIndex::get)
+            while (true) {
+                val current = parent ?: return false
+                if (isCollection(current)) return true
+                parent = current.parentIndex?.let(nodesByIndex::get)
+            }
+        }
+
         val selected = visibleNodes.filter { node ->
-            val actionable = isActionable(node)
-            val meaningfulText = node.label?.isNotBlank() == true || node.identifier?.isNotBlank() == true
-            actionable ||
-                (meaningfulText && (hasActionableAncestor(node) || hasActionableDescendant(node))) ||
-                (isCollection(node) && hasActionableDescendant(node))
+            val directlyActionable = isDirectlyActionable(node)
+            val hasActionableDescendant = hasActionableDescendant(node)
+            val semanticProxy = hasMeaningfulLabel(node) || hasNonGenericIdentifier(node)
+            directlyActionable ||
+                (node.scrollable && hasActionableDescendant) ||
+                (semanticProxy && (
+                    hasActionableAncestor(node) ||
+                        hasActionableDescendant ||
+                        hasCollectionAncestor(node)
+                    ))
         }
 
         val parentLabels = selected
@@ -66,11 +80,23 @@ class InteractiveUiTreeProjector {
         )
     }
 
-    private fun isActionable(node: RawUiNode): Boolean =
-        node.enabled && (node.clickable || node.focusable || node.focused || node.editable || node.scrollable)
+    private fun isDirectlyActionable(node: RawUiNode): Boolean =
+        node.focused || (node.enabled && (node.clickable || node.focusable || node.editable))
+
+    private fun hasMeaningfulLabel(node: RawUiNode): Boolean = node.label?.isNotBlank() == true
+
+    /** Matches agent-device: Android resource ids are execution metadata, not semantic labels. */
+    private fun hasNonGenericIdentifier(node: RawUiNode): Boolean {
+        val identifier = node.identifier?.trim().orEmpty()
+        return identifier.isNotEmpty() && !GENERIC_ANDROID_RESOURCE_ID.matches(identifier)
+    }
 
     private fun isCollection(node: RawUiNode): Boolean {
         val role = node.role.lowercase()
         return role.contains("recyclerview") || role.contains("listview") || role.contains("gridview")
+    }
+
+    private companion object {
+        val GENERIC_ANDROID_RESOURCE_ID = Regex("^[\\w.]+:id/[\\w.-]+$", RegexOption.IGNORE_CASE)
     }
 }

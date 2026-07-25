@@ -82,8 +82,11 @@ async function observationJson(
     image_mime_type: observation.imageMimeType,
     ...image,
     foreground_app: observation.foregroundApp,
-    screen_width: observation.screenWidth,
-    screen_height: observation.screenHeight,
+    coordinate_space: observation.coordinateSpace,
+    visual_layout: observation.visualLayout,
+    ui_tree_status: observation.uiTreeStatus,
+    ...(observation.uiTreeReasonCode ? { ui_tree_reason_code: observation.uiTreeReasonCode } : {}),
+    ui_tree: observation.uiTree,
   };
 }
 
@@ -95,6 +98,7 @@ function commandInput(options: Map<string, string>): DeviceCommandInput {
     expectedObservationId: required(options.get("--observation-id"), "观察 ID"),
   };
   if (action === "tap") return { ...base, x: integer(options.get("--x"), "x"), y: integer(options.get("--y"), "y") };
+  if (action === "tap_element") return { ...base, targetRef: required(options.get("--ref"), "元素引用") };
   if (action === "swipe") return {
     ...base,
     x: integer(options.get("--x"), "x"), y: integer(options.get("--y"), "y"),
@@ -103,7 +107,7 @@ function commandInput(options: Map<string, string>): DeviceCommandInput {
   if (action === "input_text") return { ...base, text: required(options.get("--text"), "输入文本") };
   if (action === "launch") return { ...base, packageName: required(options.get("--package"), "应用包名") };
   if (action === "back" || action === "home") return base;
-  throw new Error("不支持的动作。允许 tap、swipe、input_text、launch、back 或 home。");
+  throw new Error("不支持的动作。允许 tap、tap_element、swipe、input_text、launch、back 或 home。");
 }
 
 function parseOptions(argumentsList: string[]): Map<string, string> {
@@ -125,6 +129,6 @@ function required(value: string | undefined, label: string): string {
 
 function integer(value: string | undefined, label: string): number {
   const parsed = Number(value);
-  if (!Number.isInteger(parsed)) throw new Error(`${label}必须是整数。`);
+  if (!Number.isInteger(parsed) || parsed < 0 || parsed > 1000) throw new Error(`${label}必须是 0 到 1000 的整数。`);
   return parsed;
 }

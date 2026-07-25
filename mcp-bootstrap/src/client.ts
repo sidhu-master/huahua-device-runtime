@@ -5,6 +5,10 @@ import { LanDiscovery, MdnsLanDiscovery } from "./lan-discovery.js";
 import { MCP_PACKAGE_VERSION } from "./package-version.js";
 import { sign } from "node:crypto";
 
+export class DeviceStopError extends Error {
+  constructor(message: string) { super(message); this.name = "DeviceStopError"; }
+}
+
 export type DeviceSession = { card: ConnectionCard; hostId: string; accessToken: string; expiresAtMs: number };
 export type DeviceObservation = {
   id: string;
@@ -12,8 +16,22 @@ export type DeviceObservation = {
   imageBase64: string;
   imageMimeType: string;
   foregroundApp: string;
-  screenWidth: number;
-  screenHeight: number;
+  visualLayout: "single" | "before_current";
+  coordinateSpace: "normalized_0_to_1000";
+  uiTreeStatus: string;
+  uiTreeReasonCode?: string;
+  uiTree: DeviceUiNode[];
+};
+export type DeviceUiNode = {
+  ref: string;
+  role: string;
+  label: string;
+  identifier: string;
+  bounds: { x: number; y: number; width: number; height: number };
+  enabled: boolean;
+  clickable: boolean;
+  editable: boolean;
+  scrollable: boolean;
 };
 export type DeviceCommandInput = {
   action: string;
@@ -23,6 +41,7 @@ export type DeviceCommandInput = {
   endY?: number;
   packageName?: string;
   text?: string;
+  targetRef?: string;
   stepSummary?: string;
   expectedObservationId?: string;
 };
@@ -77,32 +96,37 @@ export class HuahuaLanClient {
     };
   }
   async health(card: ConnectionCard) { return this.get(card, "/v1/health"); }
-  async heartbeat(session: DeviceSession): Promise<void> {
-    if (apiVersion(session.card) !== "v2") return;
-    await this.json(await this.fetchImpl(`${session.card.endpoint}/v2/trusted-sessions/heartbeat`, {
+  async heartbeat(session: DeviceSession): Promise<Record<string, unknown>> {
+    return await this.json(await this.fetchImpl(`${session.card.endpoint}/v2/trusted-sessions/heartbeat`, {
       method: "POST",
       headers: { "content-type": "application/json", authorization: `Bearer ${session.accessToken}` },
       body: JSON.stringify({ hostId: session.hostId, mcpVersion: MCP_PACKAGE_VERSION }),
     }));
   }
+  async complete(session: DeviceSession, summary: string): Promise<void> {
+    await this.json(await this.fetchImpl(`${session.card.endpoint}/v3/tasks/complete`, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${session.accessToken}` },
+      body: JSON.stringify({ hostId: session.hostId, summary: summary.trim().slice(0, 240) }),
+    }));
+  }
   async observe(session: DeviceSession): Promise<DeviceObservation> {
-    const version = apiVersion(session.card);
     const payload = await this.json(await this.fetchImpl(
-      `${session.card.endpoint}/${version}/observe?host_id=${encodeURIComponent(session.hostId)}`,
+      `${session.card.endpoint}/v3/observe?host_id=${encodeURIComponent(session.hostId)}`,
       { headers: { authorization: `Bearer ${session.accessToken}` } },
     ));
     return observationFrom(payload);
   }
   async command(session: DeviceSession, command: DeviceCommandInput): Promise<DeviceCommandResponse> {
-    const version = apiVersion(session.card);
-    const { stepSummary, expectedObservationId, ...commandBody } = command;
-    const payload = await this.json(await this.fetchImpl(`${session.card.endpoint}/${version}/commands`, {
+    const { stepSummary, expectedObservationId, targetRef, ...commandBody } = command;
+    const payload = await this.json(await this.fetchImpl(`${session.card.endpoint}/v3/commands`, {
       method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${session.accessToken}` },
       body: JSON.stringify({
         hostId: session.hostId,
         ...commandBody,
         ...(stepSummary ? { step_summary: stepSummary } : {}),
         ...(expectedObservationId ? { expected_observation_id: expectedObservationId } : {}),
+        ...(targetRef ? { target_ref: targetRef } : {}),
       }),
     }));
     return {
@@ -117,6 +141,7 @@ export class HuahuaLanClient {
   private async json(response: Response): Promise<any> {
     const body = await response.json();
     if (!response.ok || !body.ok) {
+      if (body.stopped === true) throw new DeviceStopError(String(body.error ?? "用户已停止任务"));
       if (response.status === 403) throw new Error("此电脑未获手机授权或授权已被撤销，请在手机中重新连接。");
       throw new Error(String(body.error ?? `手机控制服务返回错误（${response.status}）。`));
     }
@@ -124,18 +149,24 @@ export class HuahuaLanClient {
   }
 }
 
-const apiVersion = (card: ConnectionCard): "v1" | "v2" => card.deviceId && card.discoveryServiceType ? "v2" : "v1";
-
 function observationFrom(payload: any): DeviceObservation {
   return {
     id: String(payload.observation_id ?? ""),
     capturedAtMs: Number(payload.captured_at_ms ?? 0),
-    // image_* is the current contract. Keep the PNG fallback so an updated MCP
-    // can still read a phone that has not yet installed the bridge update.
-    imageBase64: String(payload.image_base64 ?? payload.png_base64 ?? ""),
-    imageMimeType: String(payload.image_mime_type ?? "image/png"),
+    imageBase64: String(payload.image_base64 ?? ""),
+    imageMimeType: String(payload.image_mime_type ?? "image/jpeg"),
     foregroundApp: String(payload.foreground_app ?? ""),
-    screenWidth: Number(payload.screen_width ?? 0),
-    screenHeight: Number(payload.screen_height ?? 0),
+    visualLayout: payload.visual_layout === "before_current" ? "before_current" : "single",
+    coordinateSpace: "normalized_0_to_1000",
+    uiTreeStatus: String(payload.ui_tree_status ?? "unavailable"),
+    uiTreeReasonCode: payload.ui_tree_reason_code ? String(payload.ui_tree_reason_code) : undefined,
+    uiTree: Array.isArray(payload.ui_tree) ? payload.ui_tree.map((node: any) => ({
+      ref: String(node.ref ?? ""), role: String(node.role ?? ""), label: String(node.label ?? ""), identifier: String(node.identifier ?? ""),
+      bounds: {
+        x: Number(node.bounds?.x ?? 0), y: Number(node.bounds?.y ?? 0),
+        width: Number(node.bounds?.width ?? 0), height: Number(node.bounds?.height ?? 0),
+      },
+      enabled: Boolean(node.enabled), clickable: Boolean(node.clickable), editable: Boolean(node.editable), scrollable: Boolean(node.scrollable),
+    })) : [],
   };
 }
