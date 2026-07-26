@@ -12,6 +12,11 @@ type CloseAwareTransport = {
   onclose?: () => void;
 };
 
+export type PhoneControlEvent = {
+  type: "control_paused" | "control_resumed";
+  detail: string;
+};
+
 /** Keeps the phone's live-connection lease fresh for the lifetime of one MCP process. */
 export class TrustedSessionHeartbeat {
   private readonly intervalMs: number;
@@ -22,6 +27,8 @@ export class TrustedSessionHeartbeat {
   private sseStopped = false;
   private phoneControlReadyEventSeen = false;
   private readonly phoneControlReadyWaiters = new Set<(ready: boolean) => void>();
+  private pendingControlEvent: PhoneControlEvent | null = null;
+  private readonly controlEventListeners = new Set<(event: PhoneControlEvent) => void>();
 
   constructor(
     private readonly device: Pick<ResilientDeviceSession, "heartbeat" | "current">,
@@ -56,6 +63,17 @@ export class TrustedSessionHeartbeat {
     return v;
   }
 
+  onControlEvent(listener: (event: PhoneControlEvent) => void): () => void {
+    this.controlEventListeners.add(listener);
+    return () => this.controlEventListeners.delete(listener);
+  }
+
+  consumeControlEvent(): PhoneControlEvent | null {
+    const event = this.pendingControlEvent;
+    this.pendingControlEvent = null;
+    return event;
+  }
+
   waitForPhoneControlReady(timeoutMs = 120_000): Promise<boolean> {
     if (this.phoneControlReadyEventSeen) return Promise.resolve(true);
     return new Promise(resolve => {
@@ -73,7 +91,7 @@ export class TrustedSessionHeartbeat {
     const normalized = data.trim();
     if (!normalized) return;
     try {
-      const event = JSON.parse(normalized) as { type?: unknown; text?: unknown };
+      const event = JSON.parse(normalized) as { type?: unknown; text?: unknown; detail?: unknown };
       if (event.type === "phone_control_ready") {
         this.phoneControlReadyEventSeen = true;
         this.resolvePhoneControlReadyWaiters(true);
@@ -81,6 +99,13 @@ export class TrustedSessionHeartbeat {
       }
       if (event.type === "voice_command" && typeof event.text === "string" && event.text.trim()) {
         this._pendingVoiceCommand = event.text.trim();
+        return;
+      }
+      if (
+        (event.type === "control_paused" || event.type === "control_resumed") &&
+        typeof event.detail === "string"
+      ) {
+        this.acceptControlEvent({ type: event.type, detail: event.detail });
         return;
       }
     } catch {
@@ -147,10 +172,22 @@ export class TrustedSessionHeartbeat {
     for (const waiter of [...this.phoneControlReadyWaiters]) waiter(ready);
   }
 
+  private acceptControlEvent(event: PhoneControlEvent): void {
+    this.pendingControlEvent = event;
+    for (const listener of [...this.controlEventListeners]) listener(event);
+  }
+
   private tick(): void {
     void this.device.heartbeat().then((resp: Record<string, unknown> | undefined) => {
       if (resp && typeof resp.pending_voice_command === "string") {
         this._pendingVoiceCommand = resp.pending_voice_command;
+      }
+      const event = resp?.pending_control_event as { type?: unknown; detail?: unknown } | undefined;
+      if (
+        (event?.type === "control_paused" || event?.type === "control_resumed") &&
+        typeof event.detail === "string"
+      ) {
+        this.acceptControlEvent({ type: event.type, detail: event.detail });
       }
     }).catch(() => undefined);
   }

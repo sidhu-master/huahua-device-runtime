@@ -138,6 +138,58 @@ test("keeps structured voice commands separate from readiness events", () => {
   assert.equal(heartbeat.consumeVoiceCommand(), "继续搜索");
 });
 
+test("delivers phone pause immediately and retains it until the AI consumes it", () => {
+  const heartbeat = new TrustedSessionHeartbeat(
+    { heartbeat: async () => ({}), current: trustedSession("http://phone") },
+  );
+  const pushed = [];
+  heartbeat.onControlEvent(event => pushed.push(event));
+
+  heartbeat.receiveEventData(JSON.stringify({
+    type: "control_paused",
+    detail: "用户已在手机端暂停远程控制",
+  }));
+
+  assert.deepEqual(pushed, [{
+    type: "control_paused",
+    detail: "用户已在手机端暂停远程控制",
+  }]);
+  assert.deepEqual(heartbeat.consumeControlEvent(), {
+    type: "control_paused",
+    detail: "用户已在手机端暂停远程控制",
+  });
+  assert.equal(heartbeat.consumeControlEvent(), null);
+});
+
+test("delivers a phone pause returned by the periodic heartbeat", async () => {
+  const pushed = [];
+  const heartbeat = new TrustedSessionHeartbeat(
+    {
+      heartbeat: async () => ({
+        pending_control_event: {
+          type: "control_paused",
+          detail: "用户已在手机端暂停远程控制",
+        },
+      }),
+      current: trustedSession("http://phone"),
+    },
+    {
+      setIntervalImpl: () => "timer",
+      clearIntervalImpl: () => {},
+    },
+  );
+  heartbeat.onControlEvent(event => pushed.push(event));
+
+  heartbeat.start();
+  await Promise.resolve();
+
+  assert.deepEqual(pushed, [{
+    type: "control_paused",
+    detail: "用户已在手机端暂停远程控制",
+  }]);
+  heartbeat.stop();
+});
+
 test("keeps the heartbeat running after MCP startup and stops it when the stdio transport closes", () => {
   let starts = 0;
   let stops = 0;

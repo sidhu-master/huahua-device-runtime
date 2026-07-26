@@ -27,6 +27,13 @@ export async function startMcpForTrustedDevice(
 async function startMcpWithDevice(device: ResilientDeviceSession, client: HuahuaLanClient): Promise<void> {
   const heartbeat = new TrustedSessionHeartbeat(device);
   const server = new McpServer({ name: "huahua-device-agent", version: MCP_PACKAGE_VERSION });
+  heartbeat.onControlEvent(event => {
+    void server.sendLoggingMessage({
+      level: event.type === "control_paused" ? "warning" : "info",
+      logger: "huahua-device-agent",
+      data: event,
+    }).catch(() => undefined);
+  });
   server.tool("device_status", "Read the local HuAHua phone agent connection state.", {}, async () => {
     const status = device.connectionStatus;
     if (status.state !== "connected") {
@@ -38,6 +45,8 @@ async function startMcpWithDevice(device: ResilientDeviceSession, client: Huahua
     const voiceCommand = await heartbeat.fetchVoiceCommandNow();
     const payload: Record<string, unknown> = { ...control, device: current.card.displayName, host_id: current.hostId, session_expires_at_ms: current.expiresAtMs, health };
     if (voiceCommand) payload.pending_voice_command = voiceCommand;
+    const controlEvent = heartbeat.consumeControlEvent();
+    if (controlEvent) payload.control_event = controlEvent;
     return { content: [{ type: "text", text: JSON.stringify(payload) }] };
   });
   server.tool("device_session", "Read the approved local device session metadata. This never reveals the access token.", { detail: z.boolean().optional() }, async () => {
@@ -75,6 +84,10 @@ async function startMcpWithDevice(device: ResilientDeviceSession, client: Huahua
       const content = observationContent(observation);
       if (voiceCommand) {
         content.push({ type: "text" as const, text: JSON.stringify({ pending_voice_command: voiceCommand }) });
+      }
+      const controlEvent = heartbeat.consumeControlEvent();
+      if (controlEvent) {
+        content.push({ type: "text" as const, text: JSON.stringify({ control_event: controlEvent }) });
       }
       return { content };
     } catch (error) {
@@ -145,7 +158,10 @@ function commandContent(response: DeviceCommandResponse) {
 
 async function commandResult(device: ResilientDeviceSession, heartbeat: TrustedSessionHeartbeat, input: Parameters<ResilientDeviceSession["command"]>[0]) {
   try {
-    return { content: commandContent(await device.command(input)) };
+    const content = commandContent(await device.command(input));
+    const controlEvent = heartbeat.consumeControlEvent();
+    if (controlEvent) content.push({ type: "text" as const, text: JSON.stringify({ control_event: controlEvent }) });
+    return { content };
   } catch (error) {
     if (error instanceof DeviceStopError) {
       const voiceCommand = await heartbeat.fetchVoiceCommandNow();
