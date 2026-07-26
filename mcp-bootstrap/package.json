@@ -1,6 +1,6 @@
 {
   "name": "@newwe/huahua",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "Local LAN MCP and CLI adapter for a HuAHua device agent",
   "type": "module",
   "bin": {

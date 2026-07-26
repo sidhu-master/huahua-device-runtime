@@ -186,8 +186,8 @@ test("uses the system computer name by default while preserving an explicit host
 test("ships a terminal-agent skill that uses the direct CLI instead of MCP configuration", async () => {
   const skill = await readFile(new URL("../skills/huahua/SKILL.md", import.meta.url), "utf8");
 
-  assert.match(skill, /huahua pair/);
-  assert.match(skill, /huahua observe/);
+  assert.match(skill, /@newwe\/huahua@<published-version> pair/);
+  assert.match(skill, /@newwe\/huahua@<published-version> observe/);
   assert.match(skill, /observation id/i);
 });
 

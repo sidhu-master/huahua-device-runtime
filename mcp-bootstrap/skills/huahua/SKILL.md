@@ -15,8 +15,8 @@
 先安装并准备本地运行环境。只有返回 `state: "prepared"` 后，才允许发起手机配对：
 
 ```bash
-npx --yes --package @newwe/huahua@<published-version> huahua prepare
-npx --yes --package @newwe/huahua@<published-version> huahua pair '<connection_card>'
+npx --yes @newwe/huahua@<published-version> prepare
+npx --yes @newwe/huahua@<published-version> pair '<connection_card>'
 ```
 
 命令会等待用户在手机确认，并返回 `device_id`。保存这个 device id；后续命令会自动通过已保存的主机私钥恢复短期会话，不会再次要求连接卡或手机确认。
@@ -24,7 +24,7 @@ npx --yes --package @newwe/huahua@<published-version> huahua pair '<connection_c
 配对成功只表示这台电脑已获信任，不表示手机已经可以执行操作。先查询状态：
 
 ```bash
-npx --yes --package @newwe/huahua@<published-version> huahua status --device '<device_id>'
+npx --yes @newwe/huahua@<published-version> status --device '<device_id>'
 ```
 
 返回 `phone_setup_required` 时，提示用户按 HuAHua 页面完成手机控制准备，并继续查询状态。
@@ -35,13 +35,13 @@ npx --yes --package @newwe/huahua@<published-version> huahua status --device '<d
 先观察，再根据这次观察的 `observation_id` 执行一个动作。观察时应要求输出图片文件，并使用当前 AI 的本地图片阅读能力查看它；没有图片阅读能力时，不得根据 base64 文本猜测屏幕内容。
 
 ```bash
-npx --yes --package @newwe/huahua@<published-version> huahua observe --device '<device_id>' --image-file /tmp/huahua-current.jpg
+npx --yes @newwe/huahua@<published-version> observe --device '<device_id>' --image-file /tmp/huahua-current.jpg
 ```
 
 观察返回 JSON，其中包含 `observation_id`、前台应用、视觉布局和 `image_file`。所有坐标均为当前视觉输入上的 `0–1000` 归一化坐标；如果 `visual_layout` 为 `before_current`，只能操作右侧 CURRENT 半屏（`x >= 500`）。示例点击：
 
 ```bash
-npx --yes --package @newwe/huahua@<published-version> huahua command \
+npx --yes @newwe/huahua@<published-version> command \
   --device '<device_id>' --action tap --x 300 --y 800 \
   --observation-id '<observation_id>' --summary '点击搜索框'
 ```
