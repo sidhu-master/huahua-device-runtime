@@ -28,6 +28,11 @@ export class DeviceSessionManager {
     this.profiles = options.profiles ?? new DeviceProfileStore();
   }
 
+  async prepare(): Promise<{ hostId: string }> {
+    const identity = await this.identities.loadOrCreate();
+    return { hostId: identity.hostId };
+  }
+
   async pair(connectionCardText: string, hostName: string, nowMs = Date.now()): Promise<DeviceSession> {
     const card = parseConnectionCard(connectionCardText, nowMs);
     const identity = await this.identities.loadOrCreate();

@@ -5,6 +5,7 @@ import { z } from "zod";
 import { DeviceCommandResponse, DeviceObservation, DeviceSession, DeviceStopError, HuahuaLanClient } from "./client.js";
 import { ActionRequiresFreshObservationError, ResilientDeviceSession } from "./resilient-device-session.js";
 import { attachTrustedSessionHeartbeatToTransport, TrustedSessionHeartbeat } from "./trusted-session-heartbeat.js";
+import { phoneControlState } from "./phone-control-state.js";
 
 type SessionResumer = { resume(deviceId: string): Promise<DeviceSession> };
 
@@ -33,8 +34,9 @@ async function startMcpWithDevice(device: ResilientDeviceSession, client: Huahua
     }
     const current = device.current;
     const health = await client.health(current.card);
+    const control = phoneControlState(health);
     const voiceCommand = await heartbeat.fetchVoiceCommandNow();
-    const payload: Record<string, unknown> = { state: "connected", device: current.card.displayName, host_id: current.hostId, session_expires_at_ms: current.expiresAtMs, health };
+    const payload: Record<string, unknown> = { ...control, device: current.card.displayName, host_id: current.hostId, session_expires_at_ms: current.expiresAtMs, health };
     if (voiceCommand) payload.pending_voice_command = voiceCommand;
     return { content: [{ type: "text", text: JSON.stringify(payload) }] };
   });
@@ -44,6 +46,13 @@ async function startMcpWithDevice(device: ResilientDeviceSession, client: Huahua
   });
   server.tool("device_observe", "Read the current approved HuAHua phone screen before choosing the next action. Coordinates are always normalized from 0 to 1000 over this exact visual input.", {}, async () => {
     try {
+      const readiness = phoneControlState(await client.health(device.current.card));
+      if (readiness.state !== "connected") {
+        return {
+          content: [{ type: "text" as const, text: JSON.stringify(readiness) }],
+          isError: true,
+        };
+      }
       const observation = await device.observe();
       const voiceCommand = await heartbeat.fetchVoiceCommandNow();
       const content = observationContent(observation);
@@ -145,3 +154,4 @@ export { DeviceProfileStore } from "./device-profile-store.js";
 export { DeviceSessionManager } from "./device-session-manager.js";
 export { ActionRequiresFreshObservationError, ResilientDeviceSession } from "./resilient-device-session.js";
 export { TrustedSessionHeartbeat } from "./trusted-session-heartbeat.js";
+export { phoneControlState } from "./phone-control-state.js";

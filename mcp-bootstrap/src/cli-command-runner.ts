@@ -3,9 +3,10 @@ import { DeviceCommandInput, DeviceCommandResponse, DeviceObservation, DeviceSes
 import { DeviceSessionManager } from "./device-session-manager.js";
 import { resolveHostDisplayName } from "./host-display-name.js";
 import { ActionRequiresFreshObservationError, ResilientDeviceSession } from "./resilient-device-session.js";
+import { phoneControlState } from "./phone-control-state.js";
 
-type SessionProvider = Pick<DeviceSessionManager, "pair" | "resume">;
-type DeviceClient = Pick<HuahuaLanClient, "observe" | "command">;
+type SessionProvider = Pick<DeviceSessionManager, "prepare" | "pair" | "resume">;
+type DeviceClient = Pick<HuahuaLanClient, "health" | "observe" | "command">;
 
 export type DirectCliDependencies = {
   sessions?: SessionProvider;
@@ -23,6 +24,15 @@ export async function runDirectCliCommand(argumentsList: string[], dependencies:
   const write = dependencies.write ?? (value => process.stdout.write(`${value}\n`));
   const writeImage = dependencies.writeImage ?? (async (path, bytes) => writeFile(path, bytes, { mode: 0o600 }));
 
+  if (command === "prepare") {
+    const hostName = resolveHostDisplayName({
+      configuredName: dependencies.hostName ?? process.env.HUAHUA_HOST_NAME,
+    });
+    const prepared = await sessions.prepare();
+    write(JSON.stringify({ state: "prepared", host_id: prepared.hostId, host_name: hostName }));
+    return;
+  }
+
   if (command === "pair") {
     const card = required(rawArgs[0], "连接卡");
     const session = await sessions.pair(card, resolveHostDisplayName({
@@ -36,6 +46,14 @@ export async function runDirectCliCommand(argumentsList: string[], dependencies:
   const deviceId = required(options.get("--device"), "设备 ID");
   const session = await sessions.resume(deviceId);
   const device = new ResilientDeviceSession(session, sessions, client);
+  if (command === "status") {
+    write(JSON.stringify({
+      ...phoneControlState(await client.health(session.card)),
+      device_id: session.card.deviceId ?? deviceId,
+      device_name: session.card.displayName,
+    }));
+    return;
+  }
   if (command === "observe") {
     const observation = await device.observe();
     write(JSON.stringify({
@@ -65,7 +83,7 @@ export async function runDirectCliCommand(argumentsList: string[], dependencies:
     return;
   }
 
-  throw new Error("用法：huahua pair <连接卡>；huahua observe --device <设备 ID> [--image-file <路径>]；或 huahua command --device <设备 ID> --action <动作> --observation-id <ID> --summary <说明>。");
+  throw new Error("用法：huahua prepare；huahua pair <连接卡>；huahua status --device <设备 ID>；huahua observe --device <设备 ID> [--image-file <路径>]；或 huahua command --device <设备 ID> --action <动作> --observation-id <ID> --summary <说明>。");
 }
 
 async function observationJson(
