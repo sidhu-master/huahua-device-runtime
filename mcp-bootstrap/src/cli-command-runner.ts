@@ -6,7 +6,7 @@ import { ActionRequiresFreshObservationError, ResilientDeviceSession } from "./r
 import { phoneControlState } from "./phone-control-state.js";
 
 type SessionProvider = Pick<DeviceSessionManager, "prepare" | "pair" | "resume">;
-type DeviceClient = Pick<HuahuaLanClient, "health" | "observe" | "command">;
+type DeviceClient = Pick<HuahuaLanClient, "health" | "observe" | "command"> & Partial<Pick<HuahuaLanClient, "startTask">>;
 
 export type DirectCliDependencies = {
   sessions?: SessionProvider;
@@ -54,6 +54,11 @@ export async function runDirectCliCommand(argumentsList: string[], dependencies:
     }));
     return;
   }
+  if (command === "task-start") {
+    await device.startTask(required(options.get("--command"), "用户原始命令"));
+    write(JSON.stringify({ outcome: "started", detail: "手机端已记录用户的原始命令。" }));
+    return;
+  }
   if (command === "observe") {
     const observation = await device.observe();
     write(JSON.stringify({
@@ -83,7 +88,7 @@ export async function runDirectCliCommand(argumentsList: string[], dependencies:
     return;
   }
 
-  throw new Error("用法：huahua prepare；huahua pair <连接卡>；huahua status --device <设备 ID>；huahua observe --device <设备 ID> [--image-file <路径>]；或 huahua command --device <设备 ID> --action <动作> --observation-id <ID> --summary <说明>。");
+  throw new Error("用法：huahua prepare；huahua pair <连接卡>；huahua status --device <设备 ID>；huahua task-start --device <设备 ID> --command <用户原始命令>；huahua observe --device <设备 ID> [--image-file <路径>]；或 huahua command --device <设备 ID> --action <动作> --observation-id <ID> --summary <说明>。");
 }
 
 async function observationJson(

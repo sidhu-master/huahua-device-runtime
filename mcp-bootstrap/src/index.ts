@@ -70,6 +70,20 @@ async function startMcpWithDevice(device: ResilientDeviceSession, client: Huahua
       };
     },
   );
+  server.tool(
+    "device_task_start",
+    "Start one phone-control task before observing or acting. Copy the user's complete original phone-control request verbatim into original_user_command; do not replace it with a plan, summary, or first action. Call exactly once per user task.",
+    { original_user_command: z.string().min(1).max(500) },
+    async ({ original_user_command }) => {
+      await device.startTask(original_user_command);
+      return {
+        content: [{
+          type: "text",
+          text: JSON.stringify({ outcome: "started", detail: "手机端已记录用户的原始命令。" }),
+        }],
+      };
+    },
+  );
   server.tool("device_observe", "Read the current approved HuAHua phone screen before choosing the next action. Coordinates are always normalized from 0 to 1000 over this exact visual input.", {}, async () => {
     try {
       const readiness = phoneControlState(await client.health(device.current.card));

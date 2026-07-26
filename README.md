@@ -62,15 +62,17 @@ flowchart LR
 Every action is grounded in the latest observation rather than in a stale
 coordinate or a cached screenshot:
 
-1. The AI calls `device_observe` and receives the current image, foreground
+1. The AI calls `device_task_start` once and copies the user's complete original
+   phone-control request into `original_user_command` for the phone's local history.
+2. The AI calls `device_observe` and receives the current image, foreground
    app, screen dimensions, capture time, and an opaque `observation_id`.
-2. The AI chooses one bounded action and sends that exact `observation_id`
+3. The AI chooses one bounded action and sends that exact `observation_id`
    with a short user-visible step summary.
-3. The phone rejects the action if the id is missing or no longer current.
-4. The existing HuAHua engine performs the permitted action, preserves its
+4. The phone rejects the action if the id is missing or no longer current.
+5. The existing HuAHua engine performs the permitted action, preserves its
    normal safety/handoff behavior, records a receipt locally, and captures a
    fresh observation when possible.
-5. The AI uses the receipt and fresh observation to decide whether to continue
+6. The AI uses the receipt and fresh observation to decide whether to continue
    or finish. A successful tap alone is never treated as task completion.
 
 Semantic screen state and fresh evidence keep the AI grounded on the physical

@@ -462,6 +462,25 @@ test("direct CLI preserves the observation precondition for a tap", async () => 
   assert.deepEqual(commandInput, { action: "tap", x: 12, y: 34, stepSummary: "点击搜索框", expectedObservationId: "obs-1" });
 });
 
+test("direct CLI starts a task with the user's original command", async () => {
+  let originalCommand;
+  await runDirectCliCommand(
+    ["task-start", "--device", "agent-device-a", "--command", "打开抖音，搜索概率论"],
+    {
+      sessions: { resume: async () => trustedSession(), prepare: async () => {}, pair: async () => {} },
+      client: {
+        health: async () => ({ ok: true }),
+        observe: async () => { throw new Error("observe is not expected"); },
+        command: async () => { throw new Error("command is not expected"); },
+        startTask: async (_session, command) => { originalCommand = command; },
+      },
+      write: () => {},
+    },
+  );
+
+  assert.equal(originalCommand, "打开抖音，搜索概率论");
+});
+
 test("reports remote task completion through the trusted LAN session", async () => {
   const requests = [];
   const client = new HuahuaLanClient(async (url, init) => {
@@ -760,4 +779,20 @@ test("sends ordinary text with its observed-page precondition", async () => {
   });
 
   assert.equal(response.outcome, "succeeded");
+});
+
+test("starts a phone task with the user's original command", async () => {
+  const card = parseConnectionCard(cardText, 1);
+  const session = { card, hostId: "host-a", accessToken: "host-token", expiresAtMs: 9999 };
+  const client = new HuahuaLanClient(async (url, init) => {
+    assert.equal(url, `${card.endpoint}/v3/tasks/start`);
+    assert.equal(init.headers.authorization, "Bearer host-token");
+    assert.deepEqual(JSON.parse(init.body), {
+      hostId: "host-a",
+      user_command: "打开抖音，搜索概率论",
+    });
+    return new Response(JSON.stringify({ ok: true }));
+  });
+
+  await client.startTask(session, "  打开抖音，搜索概率论  ");
 });
