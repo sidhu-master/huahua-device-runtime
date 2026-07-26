@@ -190,6 +190,74 @@ test("delivers a phone pause returned by the periodic heartbeat", async () => {
   heartbeat.stop();
 });
 
+test("keeps pause and steering events in order until the AI consumes them", () => {
+  const heartbeat = new TrustedSessionHeartbeat(
+    { heartbeat: async () => ({}), current: trustedSession("http://phone") },
+  );
+
+  heartbeat.receiveEventData(JSON.stringify({
+    type: "task_paused",
+    detail: "用户已暂停当前任务，请立即停止截图和操作",
+    task_id: "task-1",
+  }));
+  heartbeat.receiveEventData(JSON.stringify({
+    type: "task_steer",
+    detail: "用户补充了任务要求，请先重新查看当前屏幕再继续",
+    task_id: "task-1",
+    text: "选择第二个结果",
+    requires_fresh_observation: true,
+  }));
+
+  assert.deepEqual(heartbeat.consumeControlEvents(), [
+    {
+      type: "task_paused",
+      detail: "用户已暂停当前任务，请立即停止截图和操作",
+      task_id: "task-1",
+    },
+    {
+      type: "task_steer",
+      detail: "用户补充了任务要求，请先重新查看当前屏幕再继续",
+      task_id: "task-1",
+      text: "选择第二个结果",
+      requires_fresh_observation: true,
+    },
+  ]);
+  assert.deepEqual(heartbeat.consumeControlEvents(), []);
+});
+
+test("accepts an ordered event batch from heartbeat fallback", async () => {
+  const heartbeat = new TrustedSessionHeartbeat(
+    {
+      heartbeat: async () => ({
+        pending_control_events: [
+          { type: "task_paused", detail: "已暂停", task_id: "task-1" },
+          {
+            type: "task_steer",
+            detail: "已补充",
+            task_id: "task-1",
+            text: "改点第二个",
+            requires_fresh_observation: true,
+          },
+        ],
+      }),
+      current: trustedSession("http://phone"),
+    },
+    {
+      setIntervalImpl: () => "timer",
+      clearIntervalImpl: () => {},
+    },
+  );
+
+  heartbeat.start();
+  await Promise.resolve();
+
+  assert.deepEqual(heartbeat.consumeControlEvents().map(event => event.type), [
+    "task_paused",
+    "task_steer",
+  ]);
+  heartbeat.stop();
+});
+
 test("keeps the heartbeat running after MCP startup and stops it when the stdio transport closes", () => {
   let starts = 0;
   let stops = 0;
