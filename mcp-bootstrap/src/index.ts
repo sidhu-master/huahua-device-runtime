@@ -44,6 +44,23 @@ async function startMcpWithDevice(device: ResilientDeviceSession, client: Huahua
     const current = device.current;
     return { content: [{ type: "text", text: JSON.stringify({ device: current.card.displayName, endpoint: current.card.endpoint, expires_at_ms: current.expiresAtMs }) }] };
   });
+  server.tool(
+    "device_wait_ready",
+    "Wait for HuAHua to finish phone-side control preparation. Call this after pairing; do not request a screenshot while it is waiting.",
+    { timeout_seconds: z.number().int().min(5).max(300).optional() },
+    async ({ timeout_seconds }) => {
+      const initial = phoneControlState(await client.health(device.current.card));
+      if (initial.state === "connected") {
+        return { content: [{ type: "text", text: JSON.stringify(initial) }] };
+      }
+      await heartbeat.waitForPhoneControlReady((timeout_seconds ?? 120) * 1_000);
+      const current = phoneControlState(await client.health(device.current.card));
+      return {
+        content: [{ type: "text", text: JSON.stringify(current) }],
+        ...(current.state === "connected" ? {} : { isError: true }),
+      };
+    },
+  );
   server.tool("device_observe", "Read the current approved HuAHua phone screen before choosing the next action. Coordinates are always normalized from 0 to 1000 over this exact visual input.", {}, async () => {
     try {
       const readiness = phoneControlState(await client.health(device.current.card));

@@ -92,8 +92,9 @@ Issue、日志、截图说明或任何第三方服务；只在本机 MCP 配对�
    MCP 进程启动后才会向手机发起配对，禁止先运行一次性的 `pair`、再安装或配置 MCP。
 3. **等待用户在手机批准**。批准后，同一个 `connect` 进程会立即启动心跳并保持连接，
    不会在配对和 MCP 启动之间留下断开窗口。
-4. **等待手机完成控制准备**。先调用 `device_status`。返回
-   `phone_setup_required` 时，应提示用户按 HuAHua 页面完成手机端设置并继续等待。
+4. **等待手机完成控制准备**。调用一次 `device_wait_ready`。HuAHua 会在准备完成后主动
+   通知 MCP；等待期间不得请求截图。若等待超时仍返回 `phone_setup_required`，应提示用户
+   按 HuAHua 页面处理未完成项目，再次等待。
 5. **确认可以执行**。只有 `device_status` 返回 `connected` 后，才能调用
    `device_observe`、请求截图或执行动作。
 
@@ -152,6 +153,7 @@ npm exec --yes @newwe/huahua@<published-version> connect '<connection_card>'
 心跳。可用工具包括：
 
 - `device_status` / `device_session`
+- `device_wait_ready`
 - `device_observe`
 - `device_tap` / `device_swipe` / `device_back` / `device_home`
 - `device_launch_app` / `device_input_text`
@@ -159,9 +161,9 @@ npm exec --yes @newwe/huahua@<published-version> connect '<connection_card>'
 每个操作都必须先 `device_observe`，并带回该次 observation id。客户端不得复用
 旧截图的 id 继续点击。
 
-首次批准后必须先调用 `device_status`。`phone_setup_required` 表示电脑已经连接，但用户
-仍需在手机中完成控制准备；此时不得调用 `device_observe`。只有状态为 `connected` 才能
-开始读取屏幕。
+首次批准后必须先调用 `device_wait_ready`。手机准备完成后会通过已有的受信任 SSE 通道
+主动唤醒该工具；`phone_setup_required` 表示电脑已经连接，但用户仍需在手机中处理未完成
+项目。此时不得调用 `device_observe`，只有状态为 `connected` 才能开始读取屏幕。
 
 首次配对成功后，使用持久设备 ID 恢复连接：
 

@@ -20,6 +20,8 @@ export class TrustedSessionHeartbeat {
   private timer: IntervalHandle | undefined;
   private sseActive = false;
   private sseStopped = false;
+  private phoneControlReadyEventSeen = false;
+  private readonly phoneControlReadyWaiters = new Set<(ready: boolean) => void>();
 
   constructor(
     private readonly device: Pick<ResilientDeviceSession, "heartbeat" | "current">,
@@ -42,6 +44,7 @@ export class TrustedSessionHeartbeat {
     this.clearIntervalImpl(this.timer);
     this.timer = undefined;
     this.sseStopped = true;
+    this.resolvePhoneControlReadyWaiters(false);
   }
 
   private _pendingVoiceCommand: string | null = null;
@@ -51,6 +54,39 @@ export class TrustedSessionHeartbeat {
     const v = this._pendingVoiceCommand;
     this._pendingVoiceCommand = null;
     return v;
+  }
+
+  waitForPhoneControlReady(timeoutMs = 120_000): Promise<boolean> {
+    if (this.phoneControlReadyEventSeen) return Promise.resolve(true);
+    return new Promise(resolve => {
+      const complete = (ready: boolean) => {
+        clearTimeout(timeout);
+        this.phoneControlReadyWaiters.delete(complete);
+        resolve(ready);
+      };
+      const timeout = setTimeout(() => complete(false), timeoutMs);
+      this.phoneControlReadyWaiters.add(complete);
+    });
+  }
+
+  receiveEventData(data: string): void {
+    const normalized = data.trim();
+    if (!normalized) return;
+    try {
+      const event = JSON.parse(normalized) as { type?: unknown; text?: unknown };
+      if (event.type === "phone_control_ready") {
+        this.phoneControlReadyEventSeen = true;
+        this.resolvePhoneControlReadyWaiters(true);
+        return;
+      }
+      if (event.type === "voice_command" && typeof event.text === "string" && event.text.trim()) {
+        this._pendingVoiceCommand = event.text.trim();
+        return;
+      }
+    } catch {
+      // Older phone builds sent voice commands as plain SSE data.
+    }
+    this._pendingVoiceCommand = normalized;
   }
 
   /**
@@ -96,8 +132,7 @@ export class TrustedSessionHeartbeat {
         buffer = lines.pop() ?? "";
         for (const line of lines) {
           if (line.startsWith("data: ")) {
-            const cmd = line.slice(6).trim();
-            if (cmd) this._pendingVoiceCommand = cmd;
+            this.receiveEventData(line.slice(6));
           }
         }
       }
@@ -106,6 +141,10 @@ export class TrustedSessionHeartbeat {
     }
     this.sseActive = false;
     if (!this.sseStopped) setTimeout(() => void this.startSse(), 3_000);
+  }
+
+  private resolvePhoneControlReadyWaiters(ready: boolean): void {
+    for (const waiter of [...this.phoneControlReadyWaiters]) waiter(ready);
   }
 
   private tick(): void {

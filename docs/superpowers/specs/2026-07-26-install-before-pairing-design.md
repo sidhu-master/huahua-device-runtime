@@ -12,7 +12,8 @@ the AI waits for the phone-control environment to become ready before requesting
 2. `pairing`: only after preparation succeeds, consume the short-lived connection card and ask the
    user to approve the named computer.
 3. `phone_setup`: after approval, keep the MCP process and heartbeat alive while HuAHua guides the
-   user through the required phone-side setup.
+   user through the required phone-side setup. The AI calls `device_wait_ready` once; the phone
+   sends a structured readiness event over the existing trusted SSE channel.
 4. `ready`: `device_status` reports that phone control is ready. Only then may the AI call
    `device_observe` and action tools.
 
