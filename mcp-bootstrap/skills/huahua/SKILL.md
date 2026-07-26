@@ -36,7 +36,14 @@ npx --yes @newwe/huahua@<published-version> status --device '<device_id>'
 
 ## 每一步操作
 
-先观察，再根据这次观察的 `observation_id` 执行一个动作。观察时应要求输出图片文件，并使用当前 AI 的本地图片阅读能力查看它；没有图片阅读能力时，不得根据 base64 文本猜测屏幕内容。
+每个新的用户任务先执行一次下面的命令。`--command` 必须完整复制用户要求控制手机的原始文字，不得改成摘要、计划或第一步动作：
+
+```bash
+npx --yes @newwe/huahua@<published-version> task-start \
+  --device '<device_id>' --command '<用户原始命令>'
+```
+
+然后先观察，再根据这次观察的 `observation_id` 执行一个动作。观察时应要求输出图片文件，并使用当前 AI 的本地图片阅读能力查看它；没有图片阅读能力时，不得根据 base64 文本猜测屏幕内容。
 
 ```bash
 npx --yes @newwe/huahua@<published-version> observe --device '<device_id>' --image-file /tmp/huahua-current.jpg
@@ -68,5 +75,6 @@ npx --yes @newwe/huahua@<published-version> command \
 - 不得请求或调用 Shell、ADB、文件、通知、联系人、剪贴板等未公开能力。
 - 必须先完成 `prepare` 再消费连接卡；不得让用户在 MCP 尚未安装和启动时提前批准配对。
 - 状态不是 `connected` 时不得调用 `observe` 或任何动作命令。
+- 每个用户任务只调用一次 `task-start`，成功后才能调用 `observe` 或动作命令。
 - 屏幕或操作结果不明确时，重新 observe；不能把已发送命令当作任务已完成。
 - 用户要求停止时，不再发送任何动作。

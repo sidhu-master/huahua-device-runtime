@@ -4,7 +4,7 @@ type SessionResumer = {
   resume(deviceId: string): Promise<DeviceSession>;
 };
 
-type DeviceClient = Pick<HuahuaLanClient, "observe" | "command"> & Partial<Pick<HuahuaLanClient, "heartbeat" | "complete">>;
+type DeviceClient = Pick<HuahuaLanClient, "observe" | "command"> & Partial<Pick<HuahuaLanClient, "heartbeat" | "startTask" | "complete">>;
 
 /** Returned after transport recovery when repeating the original action would be unsafe. */
 export class ActionRequiresFreshObservationError extends Error {
@@ -92,6 +92,14 @@ export class ResilientDeviceSession {
     }
     await this.ensureConnected();
     await this.client.complete(this.current, summary);
+  }
+
+  async startTask(userCommand: string): Promise<void> {
+    if (!this.client.startTask) {
+      throw new Error("当前客户端不支持同步用户原始命令。请更新 HuAHua MCP 后重试。");
+    }
+    await this.ensureConnected();
+    await this.client.startTask(this.current, userCommand);
   }
 
   private async recoverAfterTransportFailure(error: unknown): Promise<void> {

@@ -21,15 +21,17 @@ flowchart LR
 
 以下闭环只在 `device_status` 已返回 `connected` 后开始：
 
-1. AI 先调用 `device_observe`，获得当前图像、前台 App、屏幕尺寸、采集时间和
+1. AI 先调用一次 `device_task_start`，把用户要求控制手机的原始命令完整、原样传入
+   `original_user_command`。手机以它创建本地聊天会话，不得用执行计划或第一步动作代替。
+2. AI 调用 `device_observe`，获得当前图像、前台 App、屏幕尺寸、采集时间和
    `observation_id`。
-2. AI 只能携带这次 `observation_id` 调用一个具体动作，例如 `device_tap`、
+3. AI 只能携带这次 `observation_id` 调用一个具体动作，例如 `device_tap`、
    `device_input_text` 或 `device_launch_app`。
-3. 手机端的 `DeviceAgentExecutionGateway` 串行化同一主机的操作；id 缺失或与最新
+4. 手机端的 `DeviceAgentExecutionGateway` 串行化同一主机的操作；id 缺失或与最新
    观察不一致时，动作会以 `STALE_OBSERVATION` 拒绝，AI 必须重新观察。
-4. 已通过校验的动作仍进入 HuAHua 现有执行引擎，因此人工接管、敏感输入保护、悬浮
+5. 已通过校验的动作仍进入 HuAHua 现有执行引擎，因此人工接管、敏感输入保护、悬浮
    停止控制和本地操作记录与 App 内 AI 使用同一条路径。
-5. 动作回执会携带结果，并尽量附带新的观察。AI 必须以新证据判断继续、重试或完成，
+6. 动作回执会携带结果，并尽量附带新的观察。AI 必须以新证据判断继续、重试或完成，
    不能把“请求已发送”或“点击成功”当作任务完成。
 
 ### 首次配对与后续续连
@@ -96,7 +98,7 @@ Issue、日志、截图说明或任何第三方服务；只在本机 MCP 配对�
    通知 MCP；等待期间不得请求截图。若等待超时仍返回 `phone_setup_required`，应提示用户
    按 HuAHua 页面处理未完成项目，再次等待。
 5. **确认可以执行**。只有 `device_status` 返回 `connected` 后，才能调用
-   `device_observe`、请求截图或执行动作。
+   `device_task_start`。每个用户任务只调用一次，并在它成功后调用 `device_observe`。
 
 ## 用户如何分享
 
@@ -154,12 +156,17 @@ npm exec --yes @newwe/huahua@<published-version> connect '<connection_card>'
 
 - `device_status` / `device_session`
 - `device_wait_ready`
+- `device_task_start` / `device_task_complete`
 - `device_observe`
 - `device_tap` / `device_swipe` / `device_back` / `device_home`
 - `device_launch_app` / `device_input_text`
 
 每个操作都必须先 `device_observe`，并带回该次 observation id。客户端不得复用
 旧截图的 id 继续点击。
+
+每个新的用户任务必须先调用一次 `device_task_start`，并把用户要求控制手机的原始文字
+完整复制到 `original_user_command`。该字段用于手机聊天历史，不得填入任务摘要、执行计划
+或第一步动作。
 
 首次批准后必须先调用 `device_wait_ready`。手机准备完成后会通过已有的受信任 SSE 通道
 主动唤醒该工具；`phone_setup_required` 表示电脑已经连接，但用户仍需在手机中处理未完成

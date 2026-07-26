@@ -12,6 +12,14 @@ type CloseAwareTransport = {
   onclose?: () => void;
 };
 
+export type PhoneControlEvent = {
+  type: "control_paused" | "control_resumed" | "task_paused" | "task_steer";
+  detail: string;
+  task_id?: string;
+  text?: string;
+  requires_fresh_observation?: boolean;
+};
+
 /** Keeps the phone's live-connection lease fresh for the lifetime of one MCP process. */
 export class TrustedSessionHeartbeat {
   private readonly intervalMs: number;
@@ -22,6 +30,8 @@ export class TrustedSessionHeartbeat {
   private sseStopped = false;
   private phoneControlReadyEventSeen = false;
   private readonly phoneControlReadyWaiters = new Set<(ready: boolean) => void>();
+  private readonly pendingControlEvents: PhoneControlEvent[] = [];
+  private readonly controlEventListeners = new Set<(event: PhoneControlEvent) => void>();
 
   constructor(
     private readonly device: Pick<ResilientDeviceSession, "heartbeat" | "current">,
@@ -56,6 +66,19 @@ export class TrustedSessionHeartbeat {
     return v;
   }
 
+  onControlEvent(listener: (event: PhoneControlEvent) => void): () => void {
+    this.controlEventListeners.add(listener);
+    return () => this.controlEventListeners.delete(listener);
+  }
+
+  consumeControlEvent(): PhoneControlEvent | null {
+    return this.pendingControlEvents.shift() ?? null;
+  }
+
+  consumeControlEvents(): PhoneControlEvent[] {
+    return this.pendingControlEvents.splice(0);
+  }
+
   waitForPhoneControlReady(timeoutMs = 120_000): Promise<boolean> {
     if (this.phoneControlReadyEventSeen) return Promise.resolve(true);
     return new Promise(resolve => {
@@ -73,7 +96,7 @@ export class TrustedSessionHeartbeat {
     const normalized = data.trim();
     if (!normalized) return;
     try {
-      const event = JSON.parse(normalized) as { type?: unknown; text?: unknown };
+      const event = JSON.parse(normalized) as Record<string, unknown>;
       if (event.type === "phone_control_ready") {
         this.phoneControlReadyEventSeen = true;
         this.resolvePhoneControlReadyWaiters(true);
@@ -81,6 +104,12 @@ export class TrustedSessionHeartbeat {
       }
       if (event.type === "voice_command" && typeof event.text === "string" && event.text.trim()) {
         this._pendingVoiceCommand = event.text.trim();
+        return;
+      }
+      if (
+        this.isControlEvent(event)
+      ) {
+        this.acceptControlEvent(this.parseControlEvent(event));
         return;
       }
     } catch {
@@ -147,10 +176,46 @@ export class TrustedSessionHeartbeat {
     for (const waiter of [...this.phoneControlReadyWaiters]) waiter(ready);
   }
 
+  private acceptControlEvent(event: PhoneControlEvent): void {
+    this.pendingControlEvents.push(event);
+    for (const listener of [...this.controlEventListeners]) listener(event);
+  }
+
+  private isControlEvent(event: Record<string, unknown>): boolean {
+    return (
+      event.type === "control_paused" ||
+      event.type === "control_resumed" ||
+      event.type === "task_paused" ||
+      event.type === "task_steer"
+    ) && typeof event.detail === "string";
+  }
+
+  private parseControlEvent(event: Record<string, unknown>): PhoneControlEvent {
+    const parsed: PhoneControlEvent = {
+      type: event.type as PhoneControlEvent["type"],
+      detail: String(event.detail),
+    };
+    if (typeof event.task_id === "string") parsed.task_id = event.task_id;
+    if (typeof event.text === "string") parsed.text = event.text;
+    if (typeof event.requires_fresh_observation === "boolean") {
+      parsed.requires_fresh_observation = event.requires_fresh_observation;
+    }
+    return parsed;
+  }
+
   private tick(): void {
     void this.device.heartbeat().then((resp: Record<string, unknown> | undefined) => {
       if (resp && typeof resp.pending_voice_command === "string") {
         this._pendingVoiceCommand = resp.pending_voice_command;
+      }
+      const batch = Array.isArray(resp?.pending_control_events)
+        ? resp.pending_control_events
+        : (resp?.pending_control_event ? [resp.pending_control_event] : []);
+      for (const candidate of batch) {
+        const event = candidate as Record<string, unknown>;
+        if (this.isControlEvent(event)) {
+          this.acceptControlEvent(this.parseControlEvent(event));
+        }
       }
     }).catch(() => undefined);
   }

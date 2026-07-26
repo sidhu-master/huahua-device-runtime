@@ -110,6 +110,16 @@ export class HuahuaLanClient {
       body: JSON.stringify({ hostId: session.hostId, summary: summary.trim().slice(0, 240) }),
     }));
   }
+  async startTask(session: DeviceSession, userCommand: string): Promise<void> {
+    await this.json(await this.fetchImpl(`${session.card.endpoint}/v3/tasks/start`, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${session.accessToken}` },
+      body: JSON.stringify({
+        hostId: session.hostId,
+        user_command: userCommand.trim().slice(0, 500),
+      }),
+    }));
+  }
   async observe(session: DeviceSession): Promise<DeviceObservation> {
     const payload = await this.json(await this.fetchImpl(
       `${session.card.endpoint}/v3/observe?host_id=${encodeURIComponent(session.hostId)}`,

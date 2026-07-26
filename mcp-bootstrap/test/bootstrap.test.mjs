@@ -138,6 +138,126 @@ test("keeps structured voice commands separate from readiness events", () => {
   assert.equal(heartbeat.consumeVoiceCommand(), "继续搜索");
 });
 
+test("delivers phone pause immediately and retains it until the AI consumes it", () => {
+  const heartbeat = new TrustedSessionHeartbeat(
+    { heartbeat: async () => ({}), current: trustedSession("http://phone") },
+  );
+  const pushed = [];
+  heartbeat.onControlEvent(event => pushed.push(event));
+
+  heartbeat.receiveEventData(JSON.stringify({
+    type: "control_paused",
+    detail: "用户已在手机端暂停远程控制",
+  }));
+
+  assert.deepEqual(pushed, [{
+    type: "control_paused",
+    detail: "用户已在手机端暂停远程控制",
+  }]);
+  assert.deepEqual(heartbeat.consumeControlEvent(), {
+    type: "control_paused",
+    detail: "用户已在手机端暂停远程控制",
+  });
+  assert.equal(heartbeat.consumeControlEvent(), null);
+});
+
+test("delivers a phone pause returned by the periodic heartbeat", async () => {
+  const pushed = [];
+  const heartbeat = new TrustedSessionHeartbeat(
+    {
+      heartbeat: async () => ({
+        pending_control_event: {
+          type: "control_paused",
+          detail: "用户已在手机端暂停远程控制",
+        },
+      }),
+      current: trustedSession("http://phone"),
+    },
+    {
+      setIntervalImpl: () => "timer",
+      clearIntervalImpl: () => {},
+    },
+  );
+  heartbeat.onControlEvent(event => pushed.push(event));
+
+  heartbeat.start();
+  await Promise.resolve();
+
+  assert.deepEqual(pushed, [{
+    type: "control_paused",
+    detail: "用户已在手机端暂停远程控制",
+  }]);
+  heartbeat.stop();
+});
+
+test("keeps pause and steering events in order until the AI consumes them", () => {
+  const heartbeat = new TrustedSessionHeartbeat(
+    { heartbeat: async () => ({}), current: trustedSession("http://phone") },
+  );
+
+  heartbeat.receiveEventData(JSON.stringify({
+    type: "task_paused",
+    detail: "用户已暂停当前任务，请立即停止截图和操作",
+    task_id: "task-1",
+  }));
+  heartbeat.receiveEventData(JSON.stringify({
+    type: "task_steer",
+    detail: "用户补充了任务要求，请先重新查看当前屏幕再继续",
+    task_id: "task-1",
+    text: "选择第二个结果",
+    requires_fresh_observation: true,
+  }));
+
+  assert.deepEqual(heartbeat.consumeControlEvents(), [
+    {
+      type: "task_paused",
+      detail: "用户已暂停当前任务，请立即停止截图和操作",
+      task_id: "task-1",
+    },
+    {
+      type: "task_steer",
+      detail: "用户补充了任务要求，请先重新查看当前屏幕再继续",
+      task_id: "task-1",
+      text: "选择第二个结果",
+      requires_fresh_observation: true,
+    },
+  ]);
+  assert.deepEqual(heartbeat.consumeControlEvents(), []);
+});
+
+test("accepts an ordered event batch from heartbeat fallback", async () => {
+  const heartbeat = new TrustedSessionHeartbeat(
+    {
+      heartbeat: async () => ({
+        pending_control_events: [
+          { type: "task_paused", detail: "已暂停", task_id: "task-1" },
+          {
+            type: "task_steer",
+            detail: "已补充",
+            task_id: "task-1",
+            text: "改点第二个",
+            requires_fresh_observation: true,
+          },
+        ],
+      }),
+      current: trustedSession("http://phone"),
+    },
+    {
+      setIntervalImpl: () => "timer",
+      clearIntervalImpl: () => {},
+    },
+  );
+
+  heartbeat.start();
+  await Promise.resolve();
+
+  assert.deepEqual(heartbeat.consumeControlEvents().map(event => event.type), [
+    "task_paused",
+    "task_steer",
+  ]);
+  heartbeat.stop();
+});
+
 test("keeps the heartbeat running after MCP startup and stops it when the stdio transport closes", () => {
   let starts = 0;
   let stops = 0;
@@ -340,6 +460,25 @@ test("direct CLI preserves the observation precondition for a tap", async () => 
   });
 
   assert.deepEqual(commandInput, { action: "tap", x: 12, y: 34, stepSummary: "点击搜索框", expectedObservationId: "obs-1" });
+});
+
+test("direct CLI starts a task with the user's original command", async () => {
+  let originalCommand;
+  await runDirectCliCommand(
+    ["task-start", "--device", "agent-device-a", "--command", "打开抖音，搜索概率论"],
+    {
+      sessions: { resume: async () => trustedSession(), prepare: async () => {}, pair: async () => {} },
+      client: {
+        health: async () => ({ ok: true }),
+        observe: async () => { throw new Error("observe is not expected"); },
+        command: async () => { throw new Error("command is not expected"); },
+        startTask: async (_session, command) => { originalCommand = command; },
+      },
+      write: () => {},
+    },
+  );
+
+  assert.equal(originalCommand, "打开抖音，搜索概率论");
 });
 
 test("reports remote task completion through the trusted LAN session", async () => {
@@ -640,4 +779,20 @@ test("sends ordinary text with its observed-page precondition", async () => {
   });
 
   assert.equal(response.outcome, "succeeded");
+});
+
+test("starts a phone task with the user's original command", async () => {
+  const card = parseConnectionCard(cardText, 1);
+  const session = { card, hostId: "host-a", accessToken: "host-token", expiresAtMs: 9999 };
+  const client = new HuahuaLanClient(async (url, init) => {
+    assert.equal(url, `${card.endpoint}/v3/tasks/start`);
+    assert.equal(init.headers.authorization, "Bearer host-token");
+    assert.deepEqual(JSON.parse(init.body), {
+      hostId: "host-a",
+      user_command: "打开抖音，搜索概率论",
+    });
+    return new Response(JSON.stringify({ ok: true }));
+  });
+
+  await client.startTask(session, "  打开抖音，搜索概率论  ");
 });
