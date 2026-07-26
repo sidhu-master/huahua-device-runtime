@@ -83,7 +83,7 @@ Issue、日志、截图说明或任何第三方服务；只在本机 MCP 配对�
 1. **先准备电脑环境**。在向手机发起任何请求之前运行：
 
    ```bash
-   npx --yes --package @newwe/huahua@<published-version> huahua prepare
+   npx --yes @newwe/huahua@<published-version> prepare
    ```
 
    只有返回 `state: "prepared"` 后才能继续。执行到这里不会消耗连接卡，也不会在手机上
@@ -114,27 +114,27 @@ HuAHua 设置中的“AI 控制此手机”应同时提供：
 对于能执行本地终端命令、但不能配置 MCP 的 AI，也必须先完成包和主机身份准备：
 
 ```bash
-npx --yes --package @newwe/huahua@<published-version> huahua prepare
+npx --yes @newwe/huahua@<published-version> prepare
 ```
 
 准备成功后再运行一次配对：
 
 ```bash
-npx --yes --package @newwe/huahua@<published-version> huahua pair '<connection_card>'
+npx --yes @newwe/huahua@<published-version> pair '<connection_card>'
 ```
 
 手机批准后，命令会输出 `device_id`。先查询手机准备状态：
 
 ```bash
-npx --yes --package @newwe/huahua@<published-version> huahua status --device '<device_id>'
+npx --yes @newwe/huahua@<published-version> status --device '<device_id>'
 ```
 
 返回 `phone_setup_required` 时不得请求截图；应等待用户完成 HuAHua 页面上的手机控制准备。
 只有返回 `connected` 后才能观察和操作：
 
 ```bash
-npx --yes --package @newwe/huahua@<published-version> huahua observe --device '<device_id>' --image-file /tmp/huahua-current.jpg
-npx --yes --package @newwe/huahua@<published-version> huahua command --device '<device_id>' --action tap --x 300 --y 800 --observation-id '<observation_id>' --summary '点击搜索框'
+npx --yes @newwe/huahua@<published-version> observe --device '<device_id>' --image-file /tmp/huahua-current.jpg
+npx --yes @newwe/huahua@<published-version> command --device '<device_id>' --action tap --x 300 --y 800 --observation-id '<observation_id>' --summary '点击搜索框'
 ```
 
 CLI 每次仅使用已保存的主机私钥和设备发现信息恢复短期会话；不会保存连接卡、固定局域网 IP 或访问令牌。包内 [Skill](./skills/huahua/SKILL.md) 说明了终端型 AI 的完整安全工作流。
