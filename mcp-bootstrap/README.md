@@ -19,6 +19,8 @@ flowchart LR
 
 ### 观察—动作闭环
 
+以下闭环只在 `device_status` 已返回 `connected` 后开始：
+
 1. AI 先调用 `device_observe`，获得当前图像、前台 App、屏幕尺寸、采集时间和
    `observation_id`。
 2. AI 只能携带这次 `observation_id` 调用一个具体动作，例如 `device_tap`、
@@ -60,7 +62,7 @@ flowchart LR
 ## 给 AI 的接入说明
 
 当用户把一段 `HUAHUA_MCP_SETUP_V1` 文本发给你时，它是一次手机接入请求。
-请先读取本页，再处理其中的 `connection_card`。若你的运行环境允许安装和配置
+请先读取本页并完成 MCP 准备，再处理其中的 `connection_card`。若你的运行环境允许安装和配置
 MCP，可以完成下列操作；若没有终端或 MCP 配置权限，应明确告诉用户需要在具有
 Node.js 20+ 和 MCP 支持的 AI 主机中完成，而不能声称已经连上手机。
 
@@ -76,6 +78,25 @@ connection_card=huahua://device-agent/v2?...
 `connection_card` 是短时有效的配对密钥。不要把它发送到 GitHub、网页 URL query、
 Issue、日志、截图说明或任何第三方服务；只在本机 MCP 配对命令中使用。
 
+### 必须遵循的首次连接顺序
+
+1. **先准备电脑环境**。在向手机发起任何请求之前运行：
+
+   ```bash
+   npx --yes --package @newwe/huahua@<published-version> huahua prepare
+   ```
+
+   只有返回 `state: "prepared"` 后才能继续。执行到这里不会消耗连接卡，也不会在手机上
+   弹出批准请求。
+2. **配置并启动 MCP**。使用 `connect '<connection_card>'` 作为 MCP server 的启动参数。
+   MCP 进程启动后才会向手机发起配对，禁止先运行一次性的 `pair`、再安装或配置 MCP。
+3. **等待用户在手机批准**。批准后，同一个 `connect` 进程会立即启动心跳并保持连接，
+   不会在配对和 MCP 启动之间留下断开窗口。
+4. **等待手机完成控制准备**。先调用 `device_status`。返回
+   `phone_setup_required` 时，应提示用户按 HuAHua 页面完成手机端设置并继续等待。
+5. **确认可以执行**。只有 `device_status` 返回 `connected` 后，才能调用
+   `device_observe`、请求截图或执行动作。
+
 ## 用户如何分享
 
 HuAHua 设置中的“AI 控制此手机”应同时提供：
@@ -90,31 +111,45 @@ HuAHua 设置中的“AI 控制此手机”应同时提供：
 
 ## 直接 CLI：无需 MCP 配置
 
-对于能执行本地终端命令、但不能配置 MCP 的 AI，先运行一次配对：
+对于能执行本地终端命令、但不能配置 MCP 的 AI，也必须先完成包和主机身份准备：
 
 ```bash
-npx --yes @newwe/huahua@0.2.0 huahua pair '<connection_card>'
+npx --yes --package @newwe/huahua@<published-version> huahua prepare
 ```
 
-手机批准后，命令会输出 `device_id`。后续观察和操作会自动恢复短期会话，不会再次要求连接卡或手机确认：
+准备成功后再运行一次配对：
 
 ```bash
-npx --yes @newwe/huahua@0.2.0 huahua observe --device '<device_id>' --image-file /tmp/huahua-current.jpg
-npx --yes @newwe/huahua@0.2.0 huahua command --device '<device_id>' --action tap --x 300 --y 800 --observation-id '<observation_id>' --summary '点击搜索框'
+npx --yes --package @newwe/huahua@<published-version> huahua pair '<connection_card>'
+```
+
+手机批准后，命令会输出 `device_id`。先查询手机准备状态：
+
+```bash
+npx --yes --package @newwe/huahua@<published-version> huahua status --device '<device_id>'
+```
+
+返回 `phone_setup_required` 时不得请求截图；应等待用户完成 HuAHua 页面上的手机控制准备。
+只有返回 `connected` 后才能观察和操作：
+
+```bash
+npx --yes --package @newwe/huahua@<published-version> huahua observe --device '<device_id>' --image-file /tmp/huahua-current.jpg
+npx --yes --package @newwe/huahua@<published-version> huahua command --device '<device_id>' --action tap --x 300 --y 800 --observation-id '<observation_id>' --summary '点击搜索框'
 ```
 
 CLI 每次仅使用已保存的主机私钥和设备发现信息恢复短期会话；不会保存连接卡、固定局域网 IP 或访问令牌。包内 [Skill](./skills/huahua/SKILL.md) 说明了终端型 AI 的完整安全工作流。
 
 ## MCP 配置
 
-发布到 npm 后，首次配对可以从支持 npm 的 AI 主机运行：
+完成前面的 `prepare` 后，把下面的命令配置为 AI 客户端的 MCP server。客户端启动该
+server 时才会发起首次配对：
 
 ```bash
 npm exec --yes @newwe/huahua@<published-version> connect '<connection_card>'
 ```
 
-该命令会等待用户在手机上批准，然后以 stdio MCP server 运行。把它配置为当前 AI
-客户端的 MCP server 后，可用工具包括：
+该命令会等待用户在手机上批准，然后由同一个进程继续以 stdio MCP server 运行并维持
+心跳。可用工具包括：
 
 - `device_status` / `device_session`
 - `device_observe`
@@ -123,6 +158,10 @@ npm exec --yes @newwe/huahua@<published-version> connect '<connection_card>'
 
 每个操作都必须先 `device_observe`，并带回该次 observation id。客户端不得复用
 旧截图的 id 继续点击。
+
+首次批准后必须先调用 `device_status`。`phone_setup_required` 表示电脑已经连接，但用户
+仍需在手机中完成控制准备；此时不得调用 `device_observe`。只有状态为 `connected` 才能
+开始读取屏幕。
 
 首次配对成功后，使用持久设备 ID 恢复连接：
 

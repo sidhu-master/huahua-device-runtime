@@ -21,6 +21,75 @@ test("declares the official public package name", async () => {
   assert.equal(manifest.name, "@newwe/huahua");
 });
 
+test("prepare initializes the computer identity before a connection card is consumed", async () => {
+  const output = [];
+  let prepares = 0;
+
+  await runDirectCliCommand(["prepare"], {
+    sessions: {
+      prepare: async () => {
+        prepares += 1;
+        return { hostId: "host-ready" };
+      },
+      pair: async () => { throw new Error("pair must not run during prepare"); },
+      resume: async () => { throw new Error("resume must not run during prepare"); },
+    },
+    hostName: "Sid的Mac mini",
+    write: value => output.push(JSON.parse(value)),
+  });
+
+  assert.equal(prepares, 1);
+  assert.deepEqual(output, [{
+    state: "prepared",
+    host_id: "host-ready",
+    host_name: "Sid的Mac mini",
+  }]);
+});
+
+test("maps a paired phone with incomplete phone setup to phone_setup_required", async () => {
+  const module = await import("../dist/index.js");
+
+  assert.equal(typeof module.phoneControlState, "function");
+  assert.deepEqual(module.phoneControlState({ ok: true, phone_control_ready: false }), {
+    state: "phone_setup_required",
+    detail: "电脑 AI 已连接，请先在手机中完成控制准备。",
+  });
+  assert.deepEqual(module.phoneControlState({ ok: true, phone_control_ready: true }), {
+    state: "connected",
+  });
+});
+
+test("direct CLI status waits for phone setup without requesting a screenshot", async () => {
+  const output = [];
+  const session = trustedSession("http://phone");
+  let observations = 0;
+
+  await runDirectCliCommand(["status", "--device", "agent-device-a"], {
+    sessions: {
+      prepare: async () => ({ hostId: "host-a" }),
+      pair: async () => { throw new Error("pair is not expected"); },
+      resume: async () => session,
+    },
+    client: {
+      health: async () => ({ ok: true, phone_control_ready: false }),
+      observe: async () => {
+        observations += 1;
+        return observation("unexpected");
+      },
+      command: async () => { throw new Error("command is not expected"); },
+    },
+    write: value => output.push(JSON.parse(value)),
+  });
+
+  assert.equal(observations, 0);
+  assert.deepEqual(output, [{
+    state: "phone_setup_required",
+    detail: "电脑 AI 已连接，请先在手机中完成控制准备。",
+    device_id: "agent-device-a",
+    device_name: "Pixel 9",
+  }]);
+});
+
 test("keeps a trusted phone connection alive while the MCP process is running", async () => {
   let ticks = 0;
   let scheduled;
