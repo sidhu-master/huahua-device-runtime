@@ -116,6 +116,28 @@ test("keeps a trusted phone connection alive while the MCP process is running", 
   assert.equal(cleared, "timer");
 });
 
+test("resolves a readiness waiter from the structured phone SSE event", async () => {
+  const heartbeat = new TrustedSessionHeartbeat(
+    { heartbeat: async () => ({}), current: trustedSession("http://phone") },
+  );
+  const waiting = heartbeat.waitForPhoneControlReady(1_000);
+
+  heartbeat.receiveEventData(JSON.stringify({ type: "phone_control_ready" }));
+
+  assert.equal(await waiting, true);
+});
+
+test("keeps structured voice commands separate from readiness events", () => {
+  const heartbeat = new TrustedSessionHeartbeat(
+    { heartbeat: async () => ({}), current: trustedSession("http://phone") },
+  );
+
+  heartbeat.receiveEventData(JSON.stringify({ type: "voice_command", text: "继续搜索" }));
+  heartbeat.receiveEventData(JSON.stringify({ type: "phone_control_ready" }));
+
+  assert.equal(heartbeat.consumeVoiceCommand(), "继续搜索");
+});
+
 test("keeps the heartbeat running after MCP startup and stops it when the stdio transport closes", () => {
   let starts = 0;
   let stops = 0;

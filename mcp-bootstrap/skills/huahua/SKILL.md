@@ -30,6 +30,10 @@ npx --yes @newwe/huahua@<published-version> status --device '<device_id>'
 返回 `phone_setup_required` 时，提示用户按 HuAHua 页面完成手机控制准备，并继续查询状态。
 不得通过截图请求来试探准备是否完成。只有返回 `connected` 后才能执行下一节。
 
+若当前客户端已经配置 MCP，配对后应调用一次 `device_wait_ready`，由手机准备完成事件主动
+结束等待；不要反复调用 `device_status`。等待超时后仍未就绪时，再提示用户查看 HuAHua
+连接页面。
+
 ## 每一步操作
 
 先观察，再根据这次观察的 `observation_id` 执行一个动作。观察时应要求输出图片文件，并使用当前 AI 的本地图片阅读能力查看它；没有图片阅读能力时，不得根据 base64 文本猜测屏幕内容。
