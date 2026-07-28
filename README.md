@@ -10,6 +10,25 @@ contracts, platform runtimes, and thin platform Agent Apps. Model-provider
 integration, cloud control-plane services, user test assets, and API keys are
 outside this repository's scope.
 
+## Get HuAHua
+
+Install the HuAHua Android app from the [official HuAHua website](https://huahua.sidhu.net.cn/).
+
+The AI host requires **Node.js 20 or newer**. The standard Node.js installer
+includes both `npm` and `npx`; no separate ADB, Android Studio, Java, Python,
+Git, Docker, USB connection, or desktop companion is required for normal use.
+The phone and AI host must be able to reach each other on the same local
+network.
+
+Verify the host environment before pairing:
+
+```bash
+node --version
+npm --version
+npx --version
+npx --yes @newwe/huahua@latest prepare
+```
+
 ## Modules
 
 - `contracts`: Kotlin/JVM portable device command and receipt contract.

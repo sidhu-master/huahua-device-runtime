@@ -7,6 +7,23 @@
 本仓库仅包含设备运行时层：可移植协议契约、平台运行时和轻量平台 Agent 应用。模型服务商
 集成、云端控制平面、真实用户测试资产和 API Key 不属于本仓库范围。
 
+## 获取 HuAHua
+
+请从 [HuAHua 官方网站](https://huahua.sidhu.net.cn/)安装 Android App。
+
+AI 所在电脑需要安装 **Node.js 20 或更高版本**。Node.js 标准安装包已包含 `npm` 和
+`npx`；正常使用不需要另行安装 ADB、Android Studio、Java、Python、Git、Docker、电脑
+客户端，也不需要使用数据线。手机与 AI 所在电脑需要处于可互相访问的同一局域网。
+
+首次配对前可通过以下命令检查并准备电脑环境：
+
+```bash
+node --version
+npm --version
+npx --version
+npx --yes @newwe/huahua@latest prepare
+```
+
 ## 模块
 
 - `contracts`：Kotlin/JVM 可移植的设备命令与回执契约。

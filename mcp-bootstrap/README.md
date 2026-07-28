@@ -4,6 +4,25 @@
 和直接 CLI 两个入口，并共享主机身份和短期会话；模型推理、云端控制、ADB 端口转发和任意命令执行
 不在其职责范围内。手机仅接受已批准主机发起、且基于最新屏幕观察的操作。
 
+## 使用前准备
+
+- 在手机上安装 [HuAHua App](https://huahua.sidhu.net.cn/)。
+- 在 AI 所在电脑安装 **Node.js 20 或更高版本**；`npm` 与 `npx` 随 Node.js 一同安装。
+- 确保手机和电脑处于可互相访问的同一局域网。
+- AI 需要支持 MCP，或者具备执行本地终端命令的能力。
+
+正常使用不需要安装 ADB、Android Studio、Java、Python、Git、Docker、独立电脑客户端，
+也不需要连接数据线。首次连接前运行：
+
+```bash
+node --version
+npm --version
+npx --version
+npx --yes @newwe/huahua@latest prepare
+```
+
+Node.js 版本应为 `v20` 或更高，最后一条命令应返回 `state: "prepared"`。
+
 ## 技术框架
 
 本包是 AI 主机的设备 I/O 适配器。AI 负责理解任务、选择下一步和判断是否完成；已批准手机的观察和有限动作可以封装为标准 stdio MCP 工具，也可以通过 CLI 返回 JSON。
