@@ -87,6 +87,10 @@ flowchart LR
 MCP，可以完成下列操作；若没有终端或 MCP 配置权限，应明确告诉用户需要在具有
 Node.js 20+ 和 MCP 支持的 AI 主机中完成，而不能声称已经连上手机。
 
+如果用户要求“连接 MCP”“启动 MCP”或希望手机保持已连接，必须走下方
+`prepare -> connect` 流程。不得用一次性的 `pair` 代替 `connect`：`pair` 只登记主机信任，
+命令成功后会立即退出，也不会维持手机端的在线状态。
+
 自述卡示例（示例值不可使用）：
 
 ```text
@@ -131,9 +135,14 @@ HuAHua 设置中的“AI 控制此手机”应同时提供：
 私钥和设备发现信息；每次运行只重新交换短期控制会话。用户撤销主机、清空 HuAHua
 数据或换电脑时才需要新的连接卡和批准。
 
-## 直接 CLI：无需 MCP 配置
+## 直接 CLI：无需 MCP 配置，不保持常驻连接
 
 对于能执行本地终端命令、但不能配置 MCP 的 AI，也必须先完成包和主机身份准备：
+
+直接 CLI 是另一种运行方式。每条 `pair`、`status`、`observe` 或 `command` 命令完成后都会
+退出；后续命令使用已保存的主机身份重新建立短期会话。它不会启动 stdio MCP，也不会让手机
+持续显示“电脑 AI 已连接”。如果用户需要 MCP 或持续在线，请不要使用本节，改用
+`connect '<connection_card>'`。
 
 ```bash
 npx --yes @newwe/huahua@<published-version> prepare
@@ -146,6 +155,9 @@ npx --yes @newwe/huahua@<published-version> pair '<connection_card>'
 ```
 
 手机批准后，命令会输出 `device_id`。先查询手机准备状态：
+
+`pair` 输出 `device_id` 后进程退出、手机暂时显示断开属于直接 CLI 的预期行为；这不表示
+MCP 已经启动。不要向用户声称 MCP 已连接。
 
 ```bash
 npx --yes @newwe/huahua@<published-version> status --device '<device_id>'

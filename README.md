@@ -122,6 +122,27 @@ saves its local P-256 host key and public device-discovery metadata under
 mDNS discovery and a newly signed short-lived session. Re-pairing is required
 when the host is revoked, app data is cleared, or a different computer is used.
 
+### Persistent MCP startup vs direct CLI
+
+When the user asks to connect or start MCP, or expects the phone to remain
+online, the AI host must prepare the package and start the MCP server with:
+
+```bash
+npx --yes @newwe/huahua@<published-version> prepare
+npm exec --yes @newwe/huahua@<published-version> connect '<connection_card>'
+```
+
+`connect` performs the first pairing and then continues as the same stdio MCP
+process, keeping the phone heartbeat alive. Do not substitute the one-shot
+`pair` command for `connect`.
+
+`pair`, `status`, `observe`, and `command` belong to the direct CLI mode for AI
+hosts that cannot configure MCP. Each command exits after its single operation.
+After `pair` returns a `device_id`, the phone may show the computer as
+disconnected until another CLI command establishes a short-lived session. This
+is expected direct-CLI behavior and must not be described as an active MCP
+connection.
+
 ### Trust and session protocol
 
 ```mermaid

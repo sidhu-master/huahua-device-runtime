@@ -102,6 +102,23 @@ URL、Issue、提交记录或日志中；它是短时有效的配对密钥。
 P-256 主机密钥和公开的设备发现元数据，并以仅当前用户可访问的权限保存。后续连接通过 mDNS
 发现手机并建立新的短期签名会话。撤销主机、清空 App 数据或更换电脑后，需要重新配对。
 
+### 常驻 MCP 与直接 CLI
+
+当用户要求连接或启动 MCP，或者希望手机保持在线时，AI 主机必须先准备包，再通过以下命令
+启动 MCP Server：
+
+```bash
+npx --yes @newwe/huahua@<published-version> prepare
+npm exec --yes @newwe/huahua@<published-version> connect '<connection_card>'
+```
+
+`connect` 会完成首次配对，并由同一个 stdio MCP 进程继续维持手机心跳。不得用一次性的
+`pair` 命令代替 `connect`。
+
+`pair`、`status`、`observe` 和 `command` 属于无法配置 MCP 的 AI 主机所用的直接 CLI
+模式，每条命令完成单次操作后都会退出。`pair` 返回 `device_id` 后，手机可能显示电脑已断开，
+直到下一条 CLI 命令重新建立短期会话。这是直接 CLI 的预期行为，不能描述为 MCP 已连接。
+
 ### 信任与会话协议
 
 ```mermaid

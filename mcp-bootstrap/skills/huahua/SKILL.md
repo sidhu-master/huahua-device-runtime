@@ -2,6 +2,15 @@
 
 当用户希望让具备本地终端权限的 AI 控制同一局域网中的 HuAHua 手机、但当前 AI 客户端不能配置 MCP 时使用本 Skill。它不需要 MCP 配置；它通过 `huahua` CLI 调用手机既有的受限设备协议。
 
+若用户要求“连接 MCP”“启动 MCP”、配置 MCP Server，或希望手机保持“电脑 AI 已连接”，
+不要使用本 Skill 的 `pair` 流程。改为读取包内 README 的 MCP 配置章节，并使用
+`prepare -> connect '<connection_card>'`。`pair` 不能代替 `connect`。
+
+If the user asks to connect or start MCP, configure an MCP server, or keep the
+phone online, do not use this Skill's `pair` flow. Follow the MCP setup in the
+package README and use `prepare -> connect '<connection_card>'`. The one-shot
+`pair` command is not a substitute for `connect`.
+
 ## 前提
 
 - 当前 AI 必须能在用户电脑上执行终端命令，并且电脑与手机位于同一局域网。
@@ -20,6 +29,16 @@ npx --yes @newwe/huahua@<published-version> pair '<connection_card>'
 ```
 
 命令会等待用户在手机确认，并返回 `device_id`。保存这个 device id；后续命令会自动通过已保存的主机私钥恢复短期会话，不会再次要求连接卡或手机确认。
+
+`pair` 只登记主机信任。它输出 `device_id` 后会立即退出，不启动 stdio MCP，也不维持手机
+端的在线状态。手机随后显示断开属于直接 CLI 模式的预期行为。每条后续 CLI 命令会按需建立
+短期会话并在完成后退出；不得向用户声称 MCP 已经启动或正在常驻连接。
+
+`pair` only records host trust. It exits after returning `device_id`; it does
+not start stdio MCP or keep the phone online. A subsequent disconnected status
+is expected in direct CLI mode. Each later CLI command creates a short-lived
+session on demand and exits when done. Never claim that MCP is running or
+persistently connected.
 
 配对成功只表示这台电脑已获信任，不表示手机已经可以执行操作。先查询状态：
 
@@ -73,7 +92,7 @@ npx --yes @newwe/huahua@<published-version> command \
 
 - 不得执行密码、验证码、支付、下单确认、账号切换或其他私密/不可逆操作；交给手机上的用户完成。
 - 不得请求或调用 Shell、ADB、文件、通知、联系人、剪贴板等未公开能力。
-- 必须先完成 `prepare` 再消费连接卡；不得让用户在 MCP 尚未安装和启动时提前批准配对。
+- 必须先完成 `prepare` 再消费连接卡；直接 CLI 不得被描述为已安装、已启动或已连接的 MCP。
 - 状态不是 `connected` 时不得调用 `observe` 或任何动作命令。
 - 每个用户任务只调用一次 `task-start`，成功后才能调用 `observe` 或动作命令。
 - 屏幕或操作结果不明确时，重新 observe；不能把已发送命令当作任务已完成。
