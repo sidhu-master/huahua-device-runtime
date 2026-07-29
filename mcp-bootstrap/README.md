@@ -1,8 +1,8 @@
 # HuAHua 设备适配器
 
 为 AI 主机提供同一局域网内的设备接入：安全操控已安装 HuAHua 的手机。该包提供 stdio MCP
-和直接 CLI 两个入口，并共享主机身份和短期会话；模型推理、云端控制、ADB 端口转发和任意命令执行
-不在其职责范围内。手机仅接受已批准主机发起、且基于最新屏幕观察的操作。
+入口，负责主机身份和短期会话；模型推理、云端控制、ADB 端口转发和任意命令执行不在其职责
+范围内。手机仅接受已批准主机发起、且基于最新屏幕观察的操作。
 
 ## 使用前准备
 
@@ -25,11 +25,12 @@ Node.js 版本应为 `v20` 或更高，最后一条命令应返回 `state: "prep
 
 ## 技术框架
 
-本包是 AI 主机的设备 I/O 适配器。AI 负责理解任务、选择下一步和判断是否完成；已批准手机的观察和有限动作可以封装为标准 stdio MCP 工具，也可以通过 CLI 返回 JSON。
+本包是 AI 主机的设备 I/O 适配器。AI 负责理解任务、选择下一步和判断是否完成；已批准手机
+的观察和有限动作封装为标准 stdio MCP 工具。
 
 ```mermaid
 flowchart LR
-    AI["AI 主脑"] -->|"MCP tool call 或 CLI"| MCP["@newwe/huahua\nNode.js 20+"]
+    AI["AI 主脑"] -->|"MCP tool call"| MCP["@newwe/huahua\nNode.js 20+"]
     MCP -->|"mDNS + 短期签名会话"| PHONE["HuAHua Android Device Agent"]
     PHONE -->|"复用"| ENGINE["HuAHua 执行引擎\n安全策略 / 接管 / 本地历史"]
     ENGINE --> UI["真实 Android 界面"]
@@ -88,8 +89,7 @@ MCP，可以完成下列操作；若没有终端或 MCP 配置权限，应明确
 Node.js 20+ 和 MCP 支持的 AI 主机中完成，而不能声称已经连上手机。
 
 如果用户要求“连接 MCP”“启动 MCP”或希望手机保持已连接，必须走下方
-`prepare -> connect` 流程。不得用一次性的 `pair` 代替 `connect`：`pair` 只登记主机信任，
-命令成功后会立即退出，也不会维持手机端的在线状态。
+`prepare -> connect` 流程。首次配对和 MCP 启动必须由同一个 `connect` 进程连续完成。
 
 自述卡示例（示例值不可使用）：
 
@@ -114,7 +114,7 @@ Issue、日志、截图说明或任何第三方服务；只在本机 MCP 配对�
    只有返回 `state: "prepared"` 后才能继续。执行到这里不会消耗连接卡，也不会在手机上
    弹出批准请求。
 2. **配置并启动 MCP**。使用 `connect '<connection_card>'` 作为 MCP server 的启动参数。
-   MCP 进程启动后才会向手机发起配对，禁止先运行一次性的 `pair`、再安装或配置 MCP。
+   MCP 进程启动后才会向手机发起配对，禁止把配对和 MCP 启动拆成两个进程。
 3. **等待用户在手机批准**。批准后，同一个 `connect` 进程会立即启动心跳并保持连接，
    不会在配对和 MCP 启动之间留下断开窗口。
 4. **等待手机完成控制准备**。调用一次 `device_wait_ready`。HuAHua 会在准备完成后主动
@@ -134,44 +134,6 @@ HuAHua 设置中的“AI 控制此手机”应同时提供：
 首次连接时，手机会显示待批准的 AI 主机。用户确认一次后，主机在本地保存 P-256
 私钥和设备发现信息；每次运行只重新交换短期控制会话。用户撤销主机、清空 HuAHua
 数据或换电脑时才需要新的连接卡和批准。
-
-## 直接 CLI：无需 MCP 配置，不保持常驻连接
-
-对于能执行本地终端命令、但不能配置 MCP 的 AI，也必须先完成包和主机身份准备：
-
-直接 CLI 是另一种运行方式。每条 `pair`、`status`、`observe` 或 `command` 命令完成后都会
-退出；后续命令使用已保存的主机身份重新建立短期会话。它不会启动 stdio MCP，也不会让手机
-持续显示“电脑 AI 已连接”。如果用户需要 MCP 或持续在线，请不要使用本节，改用
-`connect '<connection_card>'`。
-
-```bash
-npx --yes @newwe/huahua@<published-version> prepare
-```
-
-准备成功后再运行一次配对：
-
-```bash
-npx --yes @newwe/huahua@<published-version> pair '<connection_card>'
-```
-
-手机批准后，命令会输出 `device_id`。先查询手机准备状态：
-
-`pair` 输出 `device_id` 后进程退出、手机暂时显示断开属于直接 CLI 的预期行为；这不表示
-MCP 已经启动。不要向用户声称 MCP 已连接。
-
-```bash
-npx --yes @newwe/huahua@<published-version> status --device '<device_id>'
-```
-
-返回 `phone_setup_required` 时不得请求截图；应等待用户完成 HuAHua 页面上的手机控制准备。
-只有返回 `connected` 后才能观察和操作：
-
-```bash
-npx --yes @newwe/huahua@<published-version> observe --device '<device_id>' --image-file /tmp/huahua-current.jpg
-npx --yes @newwe/huahua@<published-version> command --device '<device_id>' --action tap --x 300 --y 800 --observation-id '<observation_id>' --summary '点击搜索框'
-```
-
-CLI 每次仅使用已保存的主机私钥和设备发现信息恢复短期会话；不会保存连接卡、固定局域网 IP 或访问令牌。包内 [Skill](./skills/huahua/SKILL.md) 说明了终端型 AI 的完整安全工作流。
 
 ## MCP 配置
 

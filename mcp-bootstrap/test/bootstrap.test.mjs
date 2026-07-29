@@ -325,12 +325,15 @@ test("uses the system computer name by default while preserving an explicit host
   );
 });
 
-test("ships a terminal-agent skill that uses the direct CLI instead of MCP configuration", async () => {
-  const skill = await readFile(new URL("../skills/huahua/SKILL.md", import.meta.url), "utf8");
+test("does not publish the deferred direct CLI skill", async () => {
+  const manifest = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
 
-  assert.match(skill, /@newwe\/huahua@<published-version> pair/);
-  assert.match(skill, /@newwe\/huahua@<published-version> observe/);
-  assert.match(skill, /observation id/i);
+  assert.doesNotMatch(manifest.description, /\bCLI\b/i);
+  assert.ok(!manifest.files.includes("skills"));
+  await assert.rejects(
+    stat(new URL("../skills/huahua/SKILL.md", import.meta.url)),
+    { code: "ENOENT" },
+  );
 });
 
 test("parses the Android connection card format", () => {
