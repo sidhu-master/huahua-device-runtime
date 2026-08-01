@@ -89,6 +89,7 @@ class InteractiveUiTreeProjector {
                     focused = node.focused,
                     editable = node.editable,
                     scrollable = node.scrollable,
+                    focusable = node.focusable,
                 )
             },
             foregroundPackage = foregroundPackage,

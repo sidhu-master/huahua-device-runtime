@@ -105,6 +105,29 @@ class SemanticUiSnapshotProjectorTest {
         assertEquals("e9", line.ref)
     }
 
+    @Test
+    fun retainsUnlabelledFocusableGenericControlsWithTheirInteractiveReference() {
+        val capture = InteractiveUiTreeProjector().project(
+            rawNodes = listOf(
+                RawUiNode(
+                    index = 4,
+                    role = "android.view.View",
+                    identifier = "com.example:id/generic_control",
+                    bounds = UiTreeBounds(0, 0, 100, 100),
+                    focusable = true,
+                ),
+            ),
+            foregroundPackage = "com.example",
+            capturedAtMs = 8L,
+        )
+
+        val line = SemanticUiSnapshotProjector().project(capture).lines.single()
+
+        assertEquals(capture.nodes.single().ref, line.ref)
+        assertEquals("group", line.role)
+        assertNull(line.label)
+    }
+
     private fun node(
         ref: String,
         sourceIndex: Int,

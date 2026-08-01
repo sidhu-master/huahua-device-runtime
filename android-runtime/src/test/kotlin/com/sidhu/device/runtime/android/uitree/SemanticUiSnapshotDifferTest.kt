@@ -64,6 +64,69 @@ class SemanticUiSnapshotDifferTest {
         assertTrue(oversized.useFullSnapshot)
     }
 
+    @Test
+    fun requiresFullSnapshotForAmbiguousLocationsWithoutTreatingReplacementRefsAsAChange() {
+        val previous = snapshot(
+            "previous",
+            line(ref = "e1", sourceIndex = 1, label = "搜索"),
+            line(ref = "e2", sourceIndex = 1, label = "搜索"),
+        )
+        val current = snapshot(
+            "current",
+            line(ref = "e9", sourceIndex = 1, label = "搜索"),
+            line(ref = "e8", sourceIndex = 1, label = "搜索"),
+        )
+
+        val diff = SemanticUiSnapshotDiffer().diff(previous, current)
+
+        assertTrue(diff.useFullSnapshot)
+        assertFalse(diff.pageChanged)
+        assertTrue(diff.added.isEmpty())
+        assertTrue(diff.removed.isEmpty())
+    }
+
+    @Test
+    fun requiresFullSnapshotWhenAmbiguousLocationsHaveSemanticChanges() {
+        val previous = snapshot(
+            "previous",
+            line(ref = "e1", sourceIndex = 1, label = "搜索"),
+            line(ref = "e2", sourceIndex = 1, label = "搜索"),
+        )
+        val current = snapshot(
+            "current",
+            line(ref = "e9", sourceIndex = 1, label = "搜索"),
+            line(ref = "e8", sourceIndex = 1, label = "已搜索", selected = true),
+        )
+
+        val diff = SemanticUiSnapshotDiffer().diff(previous, current)
+
+        assertTrue(diff.useFullSnapshot)
+        assertTrue(diff.pageChanged)
+        assertEquals(listOf("搜索", "已搜索"), diff.added.map { it.label })
+        assertEquals(listOf("搜索", "搜索"), diff.removed.map { it.label })
+    }
+
+    @Test
+    fun keepsASmallerChangedDeltaWhenMeasuredAgainstTheCurrentSnapshot() {
+        val previous = snapshot(
+            "previous",
+            line(ref = "e1", sourceIndex = 1, label = "搜索"),
+            line(ref = "e2", sourceIndex = 2, label = "设置"),
+            line(ref = "e3", sourceIndex = 3, label = "帮助"),
+        )
+        val current = snapshot(
+            "current",
+            line(ref = "e9", sourceIndex = 1, label = "搜索"),
+            line(ref = "e8", sourceIndex = 2, label = "已设置", selected = true),
+            line(ref = "e7", sourceIndex = 3, label = "帮助"),
+        )
+
+        val diff = SemanticUiSnapshotDiffer().diff(previous, current)
+
+        assertEquals(listOf("已设置"), diff.changed.map { it.label })
+        assertFalse(diff.useFullSnapshot)
+    }
+
     private fun snapshot(snapshotId: String, vararg lines: SemanticUiLine) = SemanticUiSnapshot(
         snapshotId = snapshotId,
         status = UiTreeStatus.AVAILABLE,
@@ -71,7 +134,7 @@ class SemanticUiSnapshotDifferTest {
         capturedAtMs = 1L,
         lines = lines.toList(),
         rawNodeCount = lines.size,
-        serializedCharacterCount = 100,
+        serializedCharacterCount = lines.sumOf(SemanticUiSnapshotProjector::serializedCharacterCount),
     )
 
     private fun line(

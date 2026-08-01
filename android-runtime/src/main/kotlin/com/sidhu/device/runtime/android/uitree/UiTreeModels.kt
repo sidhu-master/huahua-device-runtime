@@ -45,6 +45,7 @@ data class InteractiveUiNode(
     val clickable: Boolean,
     val editable: Boolean,
     val scrollable: Boolean,
+    val focusable: Boolean = false,
     val selected: Boolean = false,
     val focused: Boolean = false,
 )

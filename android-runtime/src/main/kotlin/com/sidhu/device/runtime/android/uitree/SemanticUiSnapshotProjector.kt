@@ -50,6 +50,7 @@ class SemanticUiSnapshotProjector(
             node.label.isNullOrBlank() &&
             node.enabled &&
             !node.clickable &&
+            !node.focusable &&
             !node.selected &&
             !node.focused &&
             !node.editable &&

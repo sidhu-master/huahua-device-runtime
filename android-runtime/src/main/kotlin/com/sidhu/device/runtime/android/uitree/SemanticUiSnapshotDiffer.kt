@@ -18,13 +18,14 @@ class SemanticUiSnapshotDiffer {
         val previousByLocation = previous.lines.groupBy(::location)
         val currentByLocation = current.lines.groupBy(::location)
         if (previousByLocation.values.any { it.size > 1 } || currentByLocation.values.any { it.size > 1 }) {
+            val pageChanged = !sameSemanticLines(previous.lines, current.lines)
             return SemanticUiSnapshotDiff(
                 previousSnapshotId = previous.snapshotId,
                 currentSnapshotId = current.snapshotId,
-                added = current.lines,
-                removed = previous.lines,
+                added = if (pageChanged) current.lines else emptyList(),
+                removed = if (pageChanged) previous.lines else emptyList(),
                 changed = emptyList(),
-                pageChanged = previous.lines != current.lines,
+                pageChanged = pageChanged,
                 useFullSnapshot = true,
             )
         }
@@ -53,4 +54,8 @@ class SemanticUiSnapshotDiffer {
 
     private fun sameSemanticContent(left: SemanticUiLine, right: SemanticUiLine): Boolean =
         left.copy(ref = null) == right.copy(ref = null)
+
+    private fun sameSemanticLines(left: List<SemanticUiLine>, right: List<SemanticUiLine>): Boolean =
+        left.map { it.copy(ref = null) }.groupingBy { it }.eachCount() ==
+            right.map { it.copy(ref = null) }.groupingBy { it }.eachCount()
 }
