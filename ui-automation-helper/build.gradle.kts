@@ -27,4 +27,5 @@ android {
 dependencies {
     implementation("androidx.test:runner:1.6.2")
     implementation("com.google.code.gson:gson:2.10.1")
+    testImplementation("junit:junit:4.13.2")
 }

@@ -159,13 +159,21 @@ npm exec --yes @newwe/huahua@<published-version> connect '<connection_card>'
 - `device_task_start` / `device_task_complete`
 - `device_observe`
 - `device_observe_visual`
-- `device_tap` / `device_swipe` / `device_back` / `device_home`
+- `device_tap_element` / `device_tap` / `device_swipe` / `device_back` / `device_home`
 - `device_launch_app` / `device_input_text`
 
 每个操作都必须使用当前 observation id。首个 id 来自 `device_task_start`，后续 id 来自
 上一动作回执附带的新观察。语义 ref 仅对当前观察有效；出现陈旧 ref 或 observation id 时，
 必须先重新读取当前语义观察。不要在每个动作前重复调用 `device_observe`；仅在当前观察缺失、
 明确要求重新观察、恢复连接或用户暂停补充指令后调用。客户端不得复用旧观察的 id 继续点击。
+
+语义 ref 是不透明、快照作用域内的值（当前格式类似 `e1@<scope>`），必须与返回它的当前
+`observation_id` 一起使用，不能从 ref 格式推导目标，也不能把旧 ref 与新观察组合。
+`semantic_diff.current_refs` 是当前快照的完整 ref 映射；每项包含 `ref`、`source_index`，以及
+存在父节点时的 `parent_source_index`。应用增量时，以 `source_index`/`parent_source_index`
+定位上一快照中的语义行，应用 `added`、`removed`、`changed` 后，用完整 `current_refs` 替换
+所有保留行的 ref。映射不唯一、增量（含完整 ref 映射）不比当前快照更小，或 differ 无法安全
+计算时，Android 会直接返回新的 `semantic_snapshot`；此时必须整体替换本地语义快照。
 
 每个新的用户任务必须先调用一次 `device_task_start`，并把用户要求控制手机的原始文字
 完整复制到 `original_user_command`。该字段用于手机聊天历史，不得填入任务摘要、执行计划

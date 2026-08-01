@@ -7,6 +7,8 @@ data class HelperSnapshotResponse(
     val foregroundPackage: String,
     val capturedAtMs: Long,
     val nodes: List<RawUiNode>,
+    val status: UiTreeStatus = UiTreeStatus.AVAILABLE,
+    val reasonCode: String? = null,
 )
 
 /** Parses the helper's local-only snapshot protocol. Network transport stays in the App layer. */
@@ -16,6 +18,12 @@ object UiAutomationHelperClient {
         return HelperSnapshotResponse(
             foregroundPackage = root.string("foreground_package"),
             capturedAtMs = root.long("captured_at_ms"),
+            status = when (root.string("status").lowercase()) {
+                "degraded" -> UiTreeStatus.DEGRADED
+                "unavailable" -> UiTreeStatus.UNAVAILABLE
+                else -> UiTreeStatus.AVAILABLE
+            },
+            reasonCode = root.optionalString("reason_code")?.ifBlank { null },
             nodes = root.array("nodes").map { nodeElement ->
                 val node = nodeElement.asJsonObject
                 RawUiNode(

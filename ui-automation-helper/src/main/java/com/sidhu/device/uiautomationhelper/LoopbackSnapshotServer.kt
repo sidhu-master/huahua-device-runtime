@@ -66,18 +66,32 @@ internal class LoopbackSnapshotServer(
         val nodes = mutableListOf<Map<String, Any?>>()
         var packageName = ""
         val windows = uiAutomation.windows
-            .filter { it.type == AccessibilityWindowInfo.TYPE_APPLICATION && it.isActive }
-            .ifEmpty { uiAutomation.windows.filter { it.type == AccessibilityWindowInfo.TYPE_APPLICATION } }
-        windows.forEach { window ->
-            val root = window.root ?: return@forEach
+        val descriptors = windows.mapIndexed { index, window -> window.descriptor(index, rootAvailable = true) }
+        val candidates = SnapshotWindowPolicy.select(descriptors).selectedIndices.toSet()
+        val roots = windows.mapIndexedNotNull { index, window ->
+            if (index !in candidates) return@mapIndexedNotNull null
+            index to runCatching { window.root }.getOrNull()
+        }.toMap()
+        val plan = SnapshotWindowPolicy.select(
+            descriptors.map { descriptor ->
+                descriptor.copy(rootAvailable = descriptor.index !in candidates || roots[descriptor.index] != null)
+            },
+        )
+        var applicationRepresented = false
+        plan.selectedIndices.forEach { index ->
+            val window = windows[index]
+            val root = roots[index] ?: return@forEach
             try {
-                if (packageName.isEmpty()) packageName = root.packageName?.toString().orEmpty()
+                if (window.type == AccessibilityWindowInfo.TYPE_APPLICATION) {
+                    applicationRepresented = true
+                    if (packageName.isEmpty()) packageName = root.packageName?.toString().orEmpty()
+                }
                 appendNode(root, null, nodes)
             } finally {
                 root.recycle()
             }
         }
-        if (nodes.isEmpty()) {
+        if (!applicationRepresented) {
             uiAutomation.rootInActiveWindow?.let { root ->
                 try {
                     packageName = root.packageName?.toString().orEmpty()
@@ -87,12 +101,31 @@ internal class LoopbackSnapshotServer(
                 }
             }
         }
+        val reasonCode = plan.degradedReasonCode
+            ?: if (!applicationRepresented && packageName.isEmpty()) "ACTIVE_APPLICATION_ROOT_UNAVAILABLE" else null
         return mapOf(
             "foreground_package" to packageName,
             "captured_at_ms" to System.currentTimeMillis(),
+            "status" to if (reasonCode == null) "available" else "degraded",
+            "reason_code" to reasonCode,
             "nodes" to nodes,
         )
     }
+
+    private fun AccessibilityWindowInfo.descriptor(index: Int, rootAvailable: Boolean): SnapshotWindowDescriptor =
+        SnapshotWindowDescriptor(
+            index = index,
+            kind = when (type) {
+                AccessibilityWindowInfo.TYPE_APPLICATION -> SnapshotWindowKind.APPLICATION
+                AccessibilityWindowInfo.TYPE_INPUT_METHOD -> SnapshotWindowKind.INPUT_METHOD
+                AccessibilityWindowInfo.TYPE_ACCESSIBILITY_OVERLAY -> SnapshotWindowKind.ACCESSIBILITY_OVERLAY
+                AccessibilityWindowInfo.TYPE_SYSTEM -> SnapshotWindowKind.SYSTEM
+                else -> SnapshotWindowKind.OTHER
+            },
+            active = isActive,
+            focused = isFocused,
+            rootAvailable = rootAvailable,
+        )
 
     private fun appendNode(
         node: AccessibilityNodeInfo,

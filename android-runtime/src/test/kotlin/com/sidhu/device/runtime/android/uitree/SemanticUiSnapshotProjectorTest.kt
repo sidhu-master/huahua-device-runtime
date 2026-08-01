@@ -128,6 +128,21 @@ class SemanticUiSnapshotProjectorTest {
         assertNull(line.label)
     }
 
+    @Test
+    fun semanticCharacterMetricIsExactCanonicalSerializedLength() {
+        val capture = UiTreeCapture(
+            status = UiTreeStatus.AVAILABLE,
+            foregroundPackage = "com.example",
+            capturedAtMs = 9L,
+            nodes = listOf(node(ref = "e1", sourceIndex = 1, role = "android.widget.Button", label = "提交")),
+        )
+
+        val snapshot = SemanticUiSnapshotProjector().project(capture)
+        val exactCanonicalLine = "e1|1||0|button|提交|false|false|false|false|false|false"
+
+        assertEquals(exactCanonicalLine.length, snapshot.serializedCharacterCount)
+    }
+
     private fun node(
         ref: String,
         sourceIndex: Int,

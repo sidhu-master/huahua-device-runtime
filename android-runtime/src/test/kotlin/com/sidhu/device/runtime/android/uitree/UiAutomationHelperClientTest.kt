@@ -39,4 +39,14 @@ class UiAutomationHelperClientTest {
         assertEquals("HELPER_HTTP_503", result.reasonCode)
         assertTrue(result.nodes.isEmpty())
     }
+
+    @Test
+    fun parsesHelperDegradedStatusAndMachineReason() {
+        val response = UiAutomationHelperClient.parseSnapshot(
+            """{"foreground_package":"com.example","captured_at_ms":42,"status":"degraded","reason_code":"INPUT_METHOD_WINDOW_ROOT_UNAVAILABLE","nodes":[]}""",
+        )
+
+        assertEquals(UiTreeStatus.DEGRADED, response.status)
+        assertEquals("INPUT_METHOD_WINDOW_ROOT_UNAVAILABLE", response.reasonCode)
+    }
 }

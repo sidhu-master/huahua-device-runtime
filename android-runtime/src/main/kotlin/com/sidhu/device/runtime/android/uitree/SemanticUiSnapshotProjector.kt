@@ -105,7 +105,10 @@ class SemanticUiSnapshotProjector(
             }
         }
 
-        internal fun serializedCharacterCount(line: SemanticUiLine): Int =
+        /** Exact UTF-16 code-unit count of the canonical pipe-delimited semantic line. */
+        internal fun serializedCharacterCount(line: SemanticUiLine): Int = canonicalMetricLine(line).length
+
+        private fun canonicalMetricLine(line: SemanticUiLine): String =
             listOf(
                 line.ref.orEmpty(),
                 line.sourceIndex.toString(),
@@ -119,6 +122,6 @@ class SemanticUiSnapshotProjector(
                 line.editable.toString(),
                 line.scrollable.toString(),
                 line.truncated.toString(),
-            ).sumOf(String::length) + 11
+            ).joinToString("|")
     }
 }
