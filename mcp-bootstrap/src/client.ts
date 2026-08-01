@@ -15,6 +15,8 @@ export type DeviceObservation = {
   capturedAtMs: number;
   imageBase64?: string;
   imageMimeType?: string;
+  coordinateSpace?: "normalized_0_to_1000";
+  visualLayout?: "single" | "before_current";
   foregroundApp: string;
   uiTreeStatus: string;
   uiTreeReasonCode?: string;
@@ -155,6 +157,8 @@ function observationFrom(payload: any): DeviceObservation {
     capturedAtMs: Number(payload.captured_at_ms ?? 0),
     imageBase64: payload.image_base64 ? String(payload.image_base64) : undefined,
     imageMimeType: payload.image_mime_type ? String(payload.image_mime_type) : undefined,
+    coordinateSpace: payload.coordinate_space === "normalized_0_to_1000" ? payload.coordinate_space : undefined,
+    visualLayout: payload.visual_layout === "single" || payload.visual_layout === "before_current" ? payload.visual_layout : undefined,
     foregroundApp: String(payload.foreground_app ?? ""),
     uiTreeStatus: String(payload.ui_tree_status ?? "unavailable"),
     uiTreeReasonCode: payload.ui_tree_reason_code ? String(payload.ui_tree_reason_code) : undefined,

@@ -27,11 +27,14 @@ test("declares the official public package name", async () => {
 
 test("MCP maps Android semantic snapshots and diffs without default visual content", async () => {
   const observedUrls = [];
+  let commandCalls = 0;
   const client = new HuahuaLanClient(async (url, init = {}) => {
     if (url.endsWith("/v3/tasks/start")) return json({ ok: true });
     if (url.endsWith("/v1/health")) return json({ ok: true, phone_control_ready: true });
     if (url.endsWith("/v2/trusted-sessions/heartbeat")) return json({ ok: true });
     if (url.includes("/v3/commands")) {
+      commandCalls += 1;
+      if (commandCalls === 2) return json({ ok: true, outcome: "succeeded", detail: "已返回" });
       return json({
         ok: true,
         outcome: "succeeded",
@@ -70,24 +73,36 @@ test("MCP maps Android semantic snapshots and diffs without default visual conte
   try {
     const started = await mcp.callTool({ name: "device_task_start", arguments: { original_user_command: "打开购物车" } });
     assert.equal(imageContent(started).length, 0);
+    assert.equal(textPayload(started).coordinate_space, undefined);
+    assert.equal(textPayload(started).visual_layout, undefined);
     assert.deepEqual(textPayload(started).semantic_snapshot, semanticSnapshotObservation("obs-first", "snapshot-home").semantic_snapshot);
     assert.equal(/"ui_tree"/.test(JSON.stringify(started.content)), false);
 
     const normal = await mcp.callTool({ name: "device_observe", arguments: {} });
     assert.equal(imageContent(normal).length, 0);
+    assert.equal(textPayload(normal).coordinate_space, undefined);
+    assert.equal(textPayload(normal).visual_layout, undefined);
     assert.equal(textPayload(normal).visual_fallback_required, true);
     assert.equal(textPayload(normal).next_action, "device_observe_visual");
     assert.deepEqual(textPayload(normal).semantic_diff, semanticDiffObservation("obs-normal", "snapshot-home").semantic_diff);
 
     const action = await mcp.callTool({ name: "device_tap", arguments: { x: 500, y: 500, step_summary: "打开购物车", observation_id: "obs-normal" } });
     assert.equal(imageContent(action).length, 0);
+    assert.equal(textPayload(action).coordinate_space, undefined);
+    assert.equal(textPayload(action).visual_layout, undefined);
     assert.deepEqual(textPayload(action).semantic_diff, semanticDiffObservation("obs-after-action", "snapshot-cart").semantic_diff);
     assert.equal(observedUrls.length, 2, "actions consume their returned observation instead of observing again");
 
     const visual = await mcp.callTool({ name: "device_observe_visual", arguments: {} });
     assert.equal(imageContent(visual).length, 1);
     assert.equal(imageContent(visual)[0].data, "AQI=");
+    assert.equal(textPayload(visual).coordinate_space, "normalized_0_to_1000");
+    assert.equal(textPayload(visual).visual_layout, "single");
     assert.match(observedUrls[2], /\/v3\/observe\?host_id=host-a&visual=true$/);
+
+    const actionWithoutObservation = await mcp.callTool({ name: "device_back", arguments: { step_summary: "返回", observation_id: "obs-visual" } });
+    assert.equal(imageContent(actionWithoutObservation).length, 0);
+    assert.equal(nextActionPayload(actionWithoutObservation).next_action, "device_observe");
   } finally {
     await mcp.close();
   }
@@ -141,6 +156,10 @@ function imageContent(result) {
 
 function textPayload(result) {
   return JSON.parse(result.content.find(item => item.type === "text" && item.text.includes("observation_id")).text);
+}
+
+function nextActionPayload(result) {
+  return JSON.parse(result.content.find(item => item.type === "text" && item.text.includes("next_action")).text);
 }
 
 test("rejects one-shot phone control commands and requires the persistent MCP server", () => {
@@ -506,6 +525,23 @@ test("shared session manager pairs once and persists the reusable device profile
     discoveryServiceType: "_huahua-device-agent._tcp.",
     hostId: "host-a",
   }]);
+});
+
+test("unknown trusted device recovery directs the user to persistent connect", async () => {
+  const manager = new DeviceSessionManager({
+    client: { connect: async () => { throw new Error("connect is not expected"); }, resume: async () => { throw new Error("resume is not expected"); } },
+    identities: { loadOrCreate: async () => ({ hostId: "host-a", privateKeyPem: "private-key", publicKeySpki: "public-key" }) },
+    profiles: { load: async () => undefined, save: async () => {} },
+  });
+
+  await assert.rejects(
+    () => manager.resume("missing-device"),
+    error => {
+      assert.match(error.message, /huahua connect <连接卡>/);
+      assert.doesNotMatch(error.message, /huahua pair/);
+      return true;
+    },
+  );
 });
 
 test("reports remote task completion through the trusted LAN session", async () => {

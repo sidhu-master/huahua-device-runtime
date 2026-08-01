@@ -43,7 +43,7 @@ export class DeviceSessionManager {
 
   async resume(deviceId: string): Promise<DeviceSession> {
     const profile = await this.profiles.load(required(deviceId, "设备 ID"));
-    if (!profile) throw new Error("没有找到这台手机的配置。请先在手机 HuAHua 中复制连接卡，并运行 huahua pair <连接卡>。");
+    if (!profile) throw new Error("没有找到这台手机的配置。请先在手机 HuAHua 中复制连接卡，并运行 huahua connect <连接卡>。");
     const identity = await this.identities.loadOrCreate();
     return this.client.resume(profile, identity);
   }

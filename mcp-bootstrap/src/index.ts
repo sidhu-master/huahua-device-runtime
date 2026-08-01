@@ -178,6 +178,7 @@ function normalizedCoordinate() {
 }
 
 function observationContent(observation: DeviceObservation, includeVisual = false) {
+  const visual = includeVisual ? requiredVisualEvidence(observation) : undefined;
   const payload: Record<string, unknown> = {
     observation_id: observation.id,
     foreground_app: observation.foregroundApp,
@@ -186,6 +187,7 @@ function observationContent(observation: DeviceObservation, includeVisual = fals
     ...(observation.uiTreeReasonCode ? { ui_tree_reason_code: observation.uiTreeReasonCode } : {}),
     ...(observation.semanticSnapshot ? { semantic_snapshot: observation.semanticSnapshot } : {}),
     ...(observation.semanticDiff ? { semantic_diff: observation.semanticDiff } : {}),
+    ...(visual ? { coordinate_space: visual.coordinateSpace, visual_layout: visual.visualLayout } : {}),
     ...(observation.visualFallbackRequired ? {
       visual_fallback_required: true,
       ...(observation.visualFallbackReasonCode ? { visual_fallback_reason_code: observation.visualFallbackReasonCode } : {}),
@@ -195,17 +197,28 @@ function observationContent(observation: DeviceObservation, includeVisual = fals
   const content: Array<{ type: "text"; text: string } | { type: "image"; data: string; mimeType: string }> = [
     { type: "text", text: JSON.stringify(payload) },
   ];
-  if (!includeVisual) return content;
-  if (!observation.imageBase64 || !observation.imageMimeType) {
+  if (!visual) return content;
+  content.push({ type: "image" as const, data: visual.imageBase64, mimeType: visual.imageMimeType });
+  return content;
+}
+
+function requiredVisualEvidence(observation: DeviceObservation) {
+  if (!observation.imageBase64 || !observation.imageMimeType || !observation.coordinateSpace || !observation.visualLayout) {
     throw new Error("手机未返回视觉证据；请稍后重新调用 device_observe_visual。");
   }
-  content.push({ type: "image" as const, data: observation.imageBase64, mimeType: observation.imageMimeType });
-  return content;
+  return {
+    imageBase64: observation.imageBase64,
+    imageMimeType: observation.imageMimeType,
+    coordinateSpace: observation.coordinateSpace,
+    visualLayout: observation.visualLayout,
+  };
 }
 
 function commandContent(response: DeviceCommandResponse) {
   const content = [{ type: "text" as const, text: JSON.stringify({ outcome: response.outcome, detail: response.detail }) }];
-  return response.observation ? [...content, ...observationContent(response.observation)] : content;
+  return response.observation
+    ? [...content, ...observationContent(response.observation)]
+    : [...content, { type: "text" as const, text: JSON.stringify({ next_action: "device_observe", detail: "动作回执未附带当前观察；请先读取当前语义页面再继续。" }) }];
 }
 
 async function commandResult(device: ResilientDeviceSession, heartbeat: TrustedSessionHeartbeat, input: Parameters<ResilientDeviceSession["command"]>[0]) {
