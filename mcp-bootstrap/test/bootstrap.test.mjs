@@ -35,6 +35,9 @@ test("MCP maps Android semantic snapshots and diffs without default visual conte
     if (url.includes("/v3/commands")) {
       commandCalls += 1;
       if (commandCalls === 2) return json({ ok: true, outcome: "succeeded", detail: "已返回" });
+      if (commandCalls === 3) return json({ ok: true, outcome: "handoff_required", detail: "需要你在手机上手动完成这一步。" });
+      if (commandCalls === 4) return json({ ok: true, outcome: "failed", detail: "手机操作未完成。" });
+      if (commandCalls === 5) return new Response(JSON.stringify({ ok: false, stopped: true, error: "用户已停止任务" }), { status: 423 });
       return json({
         ok: true,
         outcome: "succeeded",
@@ -103,6 +106,21 @@ test("MCP maps Android semantic snapshots and diffs without default visual conte
     const actionWithoutObservation = await mcp.callTool({ name: "device_back", arguments: { step_summary: "返回", observation_id: "obs-visual" } });
     assert.equal(imageContent(actionWithoutObservation).length, 0);
     assert.equal(nextActionPayload(actionWithoutObservation).next_action, "device_observe");
+
+    const handoff = await mcp.callTool({ name: "device_input_text", arguments: { text: "敏感内容", step_summary: "需要人工输入", observation_id: "obs-visual" } });
+    assert.equal(nextActionPayload(handoff).next_action, "human_handoff");
+    assert.equal(nextActionPayload(handoff).terminal, true);
+    assert.doesNotMatch(JSON.stringify(handoff.content), /device_observe/);
+
+    const failed = await mcp.callTool({ name: "device_back", arguments: { step_summary: "返回", observation_id: "obs-visual" } });
+    assert.equal(nextActionPayload(failed).next_action, "stop");
+    assert.equal(nextActionPayload(failed).terminal, true);
+    assert.doesNotMatch(JSON.stringify(failed.content), /device_observe/);
+
+    const stopped = await mcp.callTool({ name: "device_back", arguments: { step_summary: "返回", observation_id: "obs-visual" } });
+    assert.equal(nextActionPayload(stopped).next_action, "stop");
+    assert.equal(nextActionPayload(stopped).terminal, true);
+    assert.doesNotMatch(JSON.stringify(stopped.content), /device_observe/);
   } finally {
     await mcp.close();
   }

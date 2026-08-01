@@ -216,9 +216,14 @@ function requiredVisualEvidence(observation: DeviceObservation) {
 
 function commandContent(response: DeviceCommandResponse) {
   const content = [{ type: "text" as const, text: JSON.stringify({ outcome: response.outcome, detail: response.detail }) }];
-  return response.observation
-    ? [...content, ...observationContent(response.observation)]
-    : [...content, { type: "text" as const, text: JSON.stringify({ next_action: "device_observe", detail: "动作回执未附带当前观察；请先读取当前语义页面再继续。" }) }];
+  if (response.observation) return [...content, ...observationContent(response.observation)];
+  if (response.outcome === "succeeded") {
+    return [...content, { type: "text" as const, text: JSON.stringify({ next_action: "device_observe", detail: "动作回执未附带当前观察；请先读取当前语义页面再继续。" }) }];
+  }
+  if (response.outcome === "handoff_required") {
+    return [...content, { type: "text" as const, text: JSON.stringify({ next_action: "human_handoff", terminal: true, detail: "请让用户在手机上手动完成当前步骤；不要继续读取或操作设备。" }) }];
+  }
+  return [...content, { type: "text" as const, text: JSON.stringify({ next_action: "stop", terminal: true, detail: "当前操作未完成且未返回观察；请停止自动操作。" }) }];
 }
 
 async function commandResult(device: ResilientDeviceSession, heartbeat: TrustedSessionHeartbeat, input: Parameters<ResilientDeviceSession["command"]>[0]) {
@@ -230,7 +235,7 @@ async function commandResult(device: ResilientDeviceSession, heartbeat: TrustedS
   } catch (error) {
     if (error instanceof DeviceStopError) {
       const voiceCommand = await heartbeat.fetchVoiceCommandNow();
-      const payload: Record<string, unknown> = { outcome: "stopped", detail: "用户已在手机端停止任务，请立即停止当前操作。" };
+      const payload: Record<string, unknown> = { outcome: "stopped", next_action: "stop", terminal: true, detail: "用户已在手机端停止任务，请立即停止当前操作。" };
       if (voiceCommand) {
         payload.pending_voice_command = voiceCommand;
         payload.instruction = "用户发送了新的语音命令，请将其作为新命令立即执行。";
