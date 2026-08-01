@@ -1,4 +1,4 @@
-import { DeviceCommandInput, DeviceCommandResponse, DeviceObservation, DeviceSession, HuahuaLanClient } from "./client.js";
+import { DeviceCommandInput, DeviceCommandResponse, DeviceObservation, DeviceReobserveRequiredError, DeviceSession, HuahuaLanClient } from "./client.js";
 
 type SessionResumer = {
   resume(deviceId: string): Promise<DeviceSession>;
@@ -8,8 +8,8 @@ type DeviceClient = Pick<HuahuaLanClient, "observe" | "command"> & Partial<Pick<
 
 /** Returned after transport recovery when repeating the original action would be unsafe. */
 export class ActionRequiresFreshObservationError extends Error {
-  constructor() {
-    super("手机的局域网地址已变化，连接已恢复。为避免重复操作，未再次执行该动作；请先观察当前页面，再决定下一步。");
+  constructor(message = "页面或连接状态已变化。为避免误操作，未执行或重试该动作；请先观察当前页面，再决定下一步。") {
+    super(message);
     this.name = "ActionRequiresFreshObservationError";
   }
 }
@@ -81,6 +81,9 @@ export class ResilientDeviceSession {
     try {
       return await this.client.command(this.current, input);
     } catch (error) {
+      if (error instanceof DeviceReobserveRequiredError) {
+        throw new ActionRequiresFreshObservationError(error.message);
+      }
       await this.recoverAfterTransportFailure(error);
       throw new ActionRequiresFreshObservationError();
     }

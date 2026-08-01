@@ -94,6 +94,7 @@ test("MCP maps Android semantic snapshots and diffs without default visual conte
     assert.equal(textPayload(action).coordinate_space, undefined);
     assert.equal(textPayload(action).visual_layout, undefined);
     assert.deepEqual(textPayload(action).semantic_diff, semanticDiffObservation("obs-after-action", "snapshot-cart").semantic_diff);
+    assert.equal(textPayload(action).semantic_diff.current_refs[0].ref, "buy@current");
     assert.equal(observedUrls.length, 2, "actions consume their returned observation instead of observing again");
 
     const visual = await mcp.callTool({ name: "device_observe_visual", arguments: {} });
@@ -121,6 +122,36 @@ test("MCP maps Android semantic snapshots and diffs without default visual conte
     assert.equal(nextActionPayload(stopped).next_action, "stop");
     assert.equal(nextActionPayload(stopped).terminal, true);
     assert.doesNotMatch(JSON.stringify(stopped.content), /device_observe/);
+  } finally {
+    await mcp.close();
+  }
+});
+
+test("maps a real Android stale 409 through client and resilient session to structured MCP recovery", async () => {
+  const client = new HuahuaLanClient(async url => {
+    if (url.includes("/v3/commands")) {
+      return new Response(JSON.stringify({
+        ok: false,
+        reobserve_required: true,
+        error: "页面已变化，请先重新查看当前屏幕后再操作。",
+      }), { status: 409 });
+    }
+    throw new Error(`unexpected request: ${url}`);
+  });
+  const device = new ResilientDeviceSession(trustedSession("http://127.0.0.1:1"), undefined, client);
+  const [mcpTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  await startMcpWithDevice(device, client, serverTransport);
+  const mcp = new Client({ name: "stale-409-contract-test", version: "1.0.0" });
+  await mcp.connect(mcpTransport);
+
+  try {
+    const result = await mcp.callTool({
+      name: "device_tap_element",
+      arguments: { ref: "e1@old", step_summary: "点击旧控件", observation_id: "obs-new" },
+    });
+    const payload = JSON.parse(result.content.find(item => item.type === "text").text);
+    assert.equal(payload.outcome, "reobserve_required");
+    assert.equal(payload.next_action, "device_observe");
   } finally {
     await mcp.close();
   }
@@ -164,6 +195,7 @@ function semanticDiffObservation(observationId, previousSnapshotId) {
       added: [],
       removed: [],
       changed: [{ ref: "buy", source_index: 3, depth: 1, role: "button", label: "已加入购物车" }],
+      current_refs: [{ ref: "buy@current", source_index: 3 }],
     },
   };
 }

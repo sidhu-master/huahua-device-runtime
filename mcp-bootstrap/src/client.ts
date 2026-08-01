@@ -9,6 +9,11 @@ export class DeviceStopError extends Error {
   constructor(message: string) { super(message); this.name = "DeviceStopError"; }
 }
 
+/** Android rejected an action because its observation/ref precondition is stale. */
+export class DeviceReobserveRequiredError extends Error {
+  constructor(message: string) { super(message); this.name = "DeviceReobserveRequiredError"; }
+}
+
 export type DeviceSession = { card: ConnectionCard; hostId: string; accessToken: string; expiresAtMs: number };
 export type DeviceObservation = {
   id: string;
@@ -144,6 +149,9 @@ export class HuahuaLanClient {
     const body = await response.json();
     if (!response.ok || !body.ok) {
       if (body.stopped === true) throw new DeviceStopError(String(body.error ?? "用户已停止任务"));
+      if (response.status === 409 && body.reobserve_required === true) {
+        throw new DeviceReobserveRequiredError(String(body.error ?? "页面已变化，请先重新查看当前屏幕后再操作。"));
+      }
       if (response.status === 403) throw new Error("此电脑未获手机授权或授权已被撤销，请在手机中重新连接。");
       throw new Error(String(body.error ?? `手机控制服务返回错误（${response.status}）。`));
     }

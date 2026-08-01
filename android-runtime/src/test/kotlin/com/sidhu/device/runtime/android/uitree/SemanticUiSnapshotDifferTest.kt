@@ -41,6 +41,7 @@ class SemanticUiSnapshotDifferTest {
         assertTrue(diff.removed.isEmpty())
         assertTrue(diff.changed.isEmpty())
         assertFalse(diff.pageChanged)
+        assertEquals(listOf("e9"), diff.currentRefs.map { it.ref })
     }
 
     @Test
@@ -125,6 +126,8 @@ class SemanticUiSnapshotDifferTest {
 
         assertEquals(listOf("已设置"), diff.changed.map { it.label })
         assertFalse(diff.useFullSnapshot)
+        assertEquals(listOf("e9", "e8", "e7"), diff.currentRefs.map { it.ref })
+        assertEquals(listOf(1, 2, 3), diff.currentRefs.map { it.sourceIndex })
     }
 
     private fun snapshot(snapshotId: String, vararg lines: SemanticUiLine) = SemanticUiSnapshot(

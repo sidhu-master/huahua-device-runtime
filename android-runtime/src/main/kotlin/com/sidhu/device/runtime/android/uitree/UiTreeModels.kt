@@ -57,6 +57,7 @@ data class UiTreeCapture(
     val capturedAtMs: Long,
     val rawNodeCount: Int = nodes.size,
     val reasonCode: String? = null,
+    val captureScopeId: String = "$foregroundPackage:$capturedAtMs",
 )
 
 data class SemanticUiLine(
@@ -91,6 +92,14 @@ data class SemanticUiSnapshotDiff(
     val added: List<SemanticUiLine>,
     val removed: List<SemanticUiLine>,
     val changed: List<SemanticUiLine>,
+    val currentRefs: List<SemanticUiRef>,
     val pageChanged: Boolean,
     val useFullSnapshot: Boolean,
+)
+
+/** Complete current-snapshot ref mapping carried by every compact diff. */
+data class SemanticUiRef(
+    val ref: String,
+    val sourceIndex: Int,
+    val parentSourceIndex: Int?,
 )

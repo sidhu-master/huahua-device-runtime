@@ -8,7 +8,7 @@ import org.junit.Test
 class InteractiveUiTreeProjectorTest {
     @Test
     fun projectsVisibleActionableCardAndItsMeaningfulText() {
-        val result = InteractiveUiTreeProjector().project(
+        val result = InteractiveUiTreeProjector(captureScopeIdFactory = { "capture-a" }).project(
             rawNodes = listOf(
                 RawUiNode(
                     index = 0,
@@ -57,7 +57,32 @@ class InteractiveUiTreeProjectorTest {
         assertEquals(listOf("商品甲", "¥129"), result.nodes.mapNotNull { it.label })
         assertTrue(result.nodes.any { it.clickable })
         assertFalse(result.nodes.any { it.label == "隐藏内容" })
-        assertEquals(listOf("e1", "e2", "e3", "e4"), result.nodes.map { it.ref })
+        assertEquals(listOf("e1@capture-a", "e2@capture-a", "e3@capture-a", "e4@capture-a"), result.nodes.map { it.ref })
+    }
+
+    @Test
+    fun scopesEveryExecutionReferenceToItsCapture() {
+        val projector = InteractiveUiTreeProjector(
+            captureScopeIdFactory = sequenceOf("capture-a", "capture-b").iterator()::next,
+        )
+        val nodes = listOf(
+            RawUiNode(
+                index = 0,
+                role = "android.widget.Button",
+                label = "提交",
+                bounds = UiTreeBounds(0, 0, 180, 64),
+                clickable = true,
+            ),
+        )
+
+        val first = projector.project(nodes, "com.example", 1L)
+        val second = projector.project(nodes, "com.example", 2L)
+
+        assertEquals("capture-a", first.captureScopeId)
+        assertEquals("capture-b", second.captureScopeId)
+        assertEquals("e1@capture-a", first.nodes.single().ref)
+        assertEquals("e1@capture-b", second.nodes.single().ref)
+        assertFalse(second.nodes.any { it.ref == first.nodes.single().ref })
     }
 
     @Test

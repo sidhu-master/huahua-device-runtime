@@ -243,7 +243,7 @@ async function commandResult(device: ResilientDeviceSession, heartbeat: TrustedS
       return { content: [{ type: "text" as const, text: JSON.stringify(payload) }], isError: true };
     }
     if (error instanceof ActionRequiresFreshObservationError) {
-      return { content: [{ type: "text" as const, text: JSON.stringify({ outcome: "reobserve_required", detail: error.message }) }] };
+      return { content: [{ type: "text" as const, text: JSON.stringify({ outcome: "reobserve_required", next_action: "device_observe", detail: error.message }) }] };
     }
     throw error;
   }

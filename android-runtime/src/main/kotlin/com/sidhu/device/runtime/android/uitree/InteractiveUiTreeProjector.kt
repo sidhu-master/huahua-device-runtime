@@ -1,7 +1,9 @@
 package com.sidhu.device.runtime.android.uitree
 
 /** Converts raw UiAutomation nodes into the compact, deterministic action context. */
-class InteractiveUiTreeProjector {
+class InteractiveUiTreeProjector(
+    private val captureScopeIdFactory: () -> String = { java.util.UUID.randomUUID().toString() },
+) {
     fun project(
         rawNodes: List<RawUiNode>,
         foregroundPackage: String,
@@ -70,13 +72,14 @@ class InteractiveUiTreeProjector {
             .mapNotNull { (node, _) -> node.label?.trim()?.takeIf { it.isNotEmpty() }?.let(node.index::to) }
             .toMap()
 
+        val captureScopeId = captureScopeIdFactory()
         return UiTreeCapture(
             status = UiTreeStatus.AVAILABLE,
             nodes = projectedNodes.mapIndexed { position, (node, parentSourceIndex) ->
                 val parentLabel = parentSourceIndex?.let(parentLabels::get)
                 val label = node.label?.trim()?.takeUnless { it == parentLabel }
                 InteractiveUiNode(
-                    ref = "e${position + 1}",
+                    ref = "e${position + 1}@$captureScopeId",
                     sourceIndex = node.index,
                     parentSourceIndex = parentSourceIndex,
                     role = node.role,
@@ -95,6 +98,7 @@ class InteractiveUiTreeProjector {
             foregroundPackage = foregroundPackage,
             capturedAtMs = capturedAtMs,
             rawNodeCount = rawNodes.size,
+            captureScopeId = captureScopeId,
         )
     }
 

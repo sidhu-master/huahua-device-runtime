@@ -3,6 +3,9 @@ package com.sidhu.device.runtime.android.uitree
 /** Produces deterministic, reference-independent deltas between semantic snapshots. */
 class SemanticUiSnapshotDiffer {
     fun diff(previous: SemanticUiSnapshot?, current: SemanticUiSnapshot): SemanticUiSnapshotDiff {
+        val currentRefs = current.lines.mapNotNull { line ->
+            line.ref?.let { SemanticUiRef(it, line.sourceIndex, line.parentSourceIndex) }
+        }
         if (previous == null) {
             return SemanticUiSnapshotDiff(
                 previousSnapshotId = null,
@@ -10,6 +13,7 @@ class SemanticUiSnapshotDiffer {
                 added = current.lines,
                 removed = emptyList(),
                 changed = emptyList(),
+                currentRefs = currentRefs,
                 pageChanged = current.lines.isNotEmpty(),
                 useFullSnapshot = true,
             )
@@ -25,6 +29,7 @@ class SemanticUiSnapshotDiffer {
                 added = if (pageChanged) current.lines else emptyList(),
                 removed = if (pageChanged) previous.lines else emptyList(),
                 changed = emptyList(),
+                currentRefs = currentRefs,
                 pageChanged = pageChanged,
                 useFullSnapshot = true,
             )
@@ -38,13 +43,15 @@ class SemanticUiSnapshotDiffer {
             } == true
         }
         val pageChanged = added.isNotEmpty() || removed.isNotEmpty() || changed.isNotEmpty()
-        val diffCharacterCount = (added + removed + changed).sumOf(SemanticUiSnapshotProjector::serializedCharacterCount)
+        val diffCharacterCount = (added + removed + changed).sumOf(SemanticUiSnapshotProjector::serializedCharacterCount) +
+            currentRefs.sumOf { it.ref.length + it.sourceIndex.toString().length + (it.parentSourceIndex?.toString()?.length ?: 0) + 2 }
         return SemanticUiSnapshotDiff(
             previousSnapshotId = previous.snapshotId,
             currentSnapshotId = current.snapshotId,
             added = added,
             removed = removed,
             changed = changed,
+            currentRefs = currentRefs,
             pageChanged = pageChanged,
             useFullSnapshot = pageChanged && diffCharacterCount >= current.serializedCharacterCount,
         )
