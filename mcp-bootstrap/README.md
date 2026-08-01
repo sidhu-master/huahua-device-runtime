@@ -43,16 +43,22 @@ flowchart LR
 
 1. AI 先调用一次 `device_task_start`，把用户要求控制手机的原始命令完整、原样传入
    `original_user_command`。手机以它创建本地聊天会话，不得用执行计划或第一步动作代替。
-2. AI 调用 `device_observe`，获得当前图像、前台 App、屏幕尺寸、采集时间和
-   `observation_id`。
-3. AI 只能携带这次 `observation_id` 调用一个具体动作，例如 `device_tap`、
+2. `device_task_start` 正常情况下会直接返回首个语义快照或语义增量、前台 App、采集时间和
+   `observation_id`；仅当回执明确要求时才补充调用 `device_observe`。语义行和当前 ref
+   由 Android 端唯一生成，Node MCP 不会再次压缩、过滤或输出原始 `ui_tree`。
+3. AI 只能携带当前 `observation_id` 调用一个具体动作，例如 `device_tap`、
    `device_input_text` 或 `device_launch_app`。
 4. 手机端的 `DeviceAgentExecutionGateway` 串行化同一主机的操作；id 缺失或与最新
    观察不一致时，动作会以 `STALE_OBSERVATION` 拒绝，AI 必须重新观察。
 5. 已通过校验的动作仍进入 HuAHua 现有执行引擎，因此人工接管、敏感输入保护、悬浮
    停止控制和本地操作记录与 App 内 AI 使用同一条路径。
-6. 动作回执会携带结果，并尽量附带新的观察。AI 必须以新证据判断继续、重试或完成，
-   不能把“请求已发送”或“点击成功”当作任务完成。
+6. 动作回执会携带结果，并尽量附带新的观察。该观察就是下一步的当前证据，AI 应直接
+   复用其中的新 `observation_id`，不得再重复调用 `device_observe`。只有回执缺少观察、
+   明确返回 `reobserve_required`、恢复连接或用户暂停补充指令后，才重新观察。
+
+截图是视觉证据，不是默认控制载荷。只有语义树不可用、界面为自绘、布局含义不明确或需要
+视觉验证时，才调用 `device_observe_visual`；它请求并返回一张当前图像。语义观察若包含
+`visual_fallback_required`，会同时给出原因并明确提示调用该工具。
 
 ### 首次配对与后续续连
 
@@ -121,7 +127,8 @@ Issue、日志、截图说明或任何第三方服务；只在本机 MCP 配对�
    通知 MCP；等待期间不得请求截图。若等待超时仍返回 `phone_setup_required`，应提示用户
    按 HuAHua 页面处理未完成项目，再次等待。
 5. **确认可以执行**。只有 `device_status` 返回 `connected` 后，才能调用
-   `device_task_start`。每个用户任务只调用一次，并在它成功后调用 `device_observe`。
+   `device_task_start`。每个用户任务只调用一次；它正常会直接返回首个观察，不要紧接着
+   重复调用 `device_observe`。
 
 ## 用户如何分享
 
@@ -151,11 +158,14 @@ npm exec --yes @newwe/huahua@<published-version> connect '<connection_card>'
 - `device_wait_ready`
 - `device_task_start` / `device_task_complete`
 - `device_observe`
+- `device_observe_visual`
 - `device_tap` / `device_swipe` / `device_back` / `device_home`
 - `device_launch_app` / `device_input_text`
 
-每个操作都必须先 `device_observe`，并带回该次 observation id。客户端不得复用
-旧截图的 id 继续点击。
+每个操作都必须使用当前 observation id。首个 id 来自 `device_task_start`，后续 id 来自
+上一动作回执附带的新观察。语义 ref 仅对当前观察有效；出现陈旧 ref 或 observation id 时，
+必须先重新读取当前语义观察。不要在每个动作前重复调用 `device_observe`；仅在当前观察缺失、
+明确要求重新观察、恢复连接或用户暂停补充指令后调用。客户端不得复用旧观察的 id 继续点击。
 
 每个新的用户任务必须先调用一次 `device_task_start`，并把用户要求控制手机的原始文字
 完整复制到 `original_user_command`。该字段用于手机聊天历史，不得填入任务摘要、执行计划

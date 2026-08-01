@@ -13,25 +13,15 @@ export type DeviceSession = { card: ConnectionCard; hostId: string; accessToken:
 export type DeviceObservation = {
   id: string;
   capturedAtMs: number;
-  imageBase64: string;
-  imageMimeType: string;
+  imageBase64?: string;
+  imageMimeType?: string;
   foregroundApp: string;
-  visualLayout: "single" | "before_current";
-  coordinateSpace: "normalized_0_to_1000";
   uiTreeStatus: string;
   uiTreeReasonCode?: string;
-  uiTree: DeviceUiNode[];
-};
-export type DeviceUiNode = {
-  ref: string;
-  role: string;
-  label: string;
-  identifier: string;
-  bounds: { x: number; y: number; width: number; height: number };
-  enabled: boolean;
-  clickable: boolean;
-  editable: boolean;
-  scrollable: boolean;
+  semanticSnapshot?: Record<string, unknown>;
+  semanticDiff?: Record<string, unknown>;
+  visualFallbackRequired: boolean;
+  visualFallbackReasonCode?: string;
 };
 export type DeviceCommandInput = {
   action: string;
@@ -120,9 +110,9 @@ export class HuahuaLanClient {
       }),
     }));
   }
-  async observe(session: DeviceSession): Promise<DeviceObservation> {
+  async observe(session: DeviceSession, visual = false): Promise<DeviceObservation> {
     const payload = await this.json(await this.fetchImpl(
-      `${session.card.endpoint}/v3/observe?host_id=${encodeURIComponent(session.hostId)}`,
+      `${session.card.endpoint}/v3/observe?host_id=${encodeURIComponent(session.hostId)}${visual ? "&visual=true" : ""}`,
       { headers: { authorization: `Bearer ${session.accessToken}` } },
     ));
     return observationFrom(payload);
@@ -163,20 +153,18 @@ function observationFrom(payload: any): DeviceObservation {
   return {
     id: String(payload.observation_id ?? ""),
     capturedAtMs: Number(payload.captured_at_ms ?? 0),
-    imageBase64: String(payload.image_base64 ?? ""),
-    imageMimeType: String(payload.image_mime_type ?? "image/jpeg"),
+    imageBase64: payload.image_base64 ? String(payload.image_base64) : undefined,
+    imageMimeType: payload.image_mime_type ? String(payload.image_mime_type) : undefined,
     foregroundApp: String(payload.foreground_app ?? ""),
-    visualLayout: payload.visual_layout === "before_current" ? "before_current" : "single",
-    coordinateSpace: "normalized_0_to_1000",
     uiTreeStatus: String(payload.ui_tree_status ?? "unavailable"),
     uiTreeReasonCode: payload.ui_tree_reason_code ? String(payload.ui_tree_reason_code) : undefined,
-    uiTree: Array.isArray(payload.ui_tree) ? payload.ui_tree.map((node: any) => ({
-      ref: String(node.ref ?? ""), role: String(node.role ?? ""), label: String(node.label ?? ""), identifier: String(node.identifier ?? ""),
-      bounds: {
-        x: Number(node.bounds?.x ?? 0), y: Number(node.bounds?.y ?? 0),
-        width: Number(node.bounds?.width ?? 0), height: Number(node.bounds?.height ?? 0),
-      },
-      enabled: Boolean(node.enabled), clickable: Boolean(node.clickable), editable: Boolean(node.editable), scrollable: Boolean(node.scrollable),
-    })) : [],
+    semanticSnapshot: isObject(payload.semantic_snapshot) ? payload.semantic_snapshot : undefined,
+    semanticDiff: isObject(payload.semantic_diff) ? payload.semantic_diff : undefined,
+    visualFallbackRequired: payload.visual_fallback_required === true,
+    visualFallbackReasonCode: payload.visual_fallback_reason_code ? String(payload.visual_fallback_reason_code) : undefined,
   };
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

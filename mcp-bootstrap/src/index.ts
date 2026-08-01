@@ -1,6 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { MCP_PACKAGE_VERSION } from "./package-version.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { z } from "zod";
 import { DeviceCommandResponse, DeviceObservation, DeviceSession, DeviceStopError, HuahuaLanClient } from "./client.js";
 import { ActionRequiresFreshObservationError, ResilientDeviceSession } from "./resilient-device-session.js";
@@ -24,9 +25,19 @@ export async function startMcpForTrustedDevice(
   await startMcpWithDevice(device, client);
 }
 
-async function startMcpWithDevice(device: ResilientDeviceSession, client: HuahuaLanClient): Promise<void> {
+/** Builds the persistent MCP server on the supplied transport. */
+export async function startMcpWithDevice(
+  device: ResilientDeviceSession,
+  client: HuahuaLanClient,
+  transport: Transport = new StdioServerTransport(),
+): Promise<void> {
   const heartbeat = new TrustedSessionHeartbeat(device);
-  const server = new McpServer({ name: "huahua-device-agent", version: MCP_PACKAGE_VERSION });
+  const server = new McpServer(
+    { name: "huahua-device-agent", version: MCP_PACKAGE_VERSION },
+    {
+      instructions: "手机操作只能通过本常驻 MCP 完成。默认观察只提供 Android 生成的语义快照或增量和当前 refs，不提供图片。每个任务仅调用一次 device_task_start；它通常直接返回首个观察。每个成功动作也会返回下一步所需的新观察和 observation_id，必须直接复用，不要再次调用 device_observe。仅当首次观察缺失、返回 reobserve_required、恢复连接或用户暂停补充指令后，才调用 device_observe。当语义树不可用、界面自绘或布局含义不明确、或需要视觉验证时，才调用 device_observe_visual；该工具返回一张视觉证据图。",
+    },
+  );
   heartbeat.onControlEvent(event => {
     void server.sendLoggingMessage({
       level: event.type === "control_paused" || event.type === "task_paused" ? "warning" : "info",
@@ -72,19 +83,32 @@ async function startMcpWithDevice(device: ResilientDeviceSession, client: Huahua
   );
   server.tool(
     "device_task_start",
-    "Start one phone-control task before observing or acting. Copy the user's complete original phone-control request verbatim into original_user_command; do not replace it with a plan, summary, or first action. Call exactly once per user task.",
+    "Start one phone-control task and return its first fresh observation. Copy the user's complete original request verbatim. Call exactly once per task; do not call device_observe next when this result already contains an observation.",
     { original_user_command: z.string().min(1).max(500) },
     async ({ original_user_command }) => {
       await device.startTask(original_user_command);
-      return {
-        content: [{
+      const content: ReturnType<typeof observationContent> = [{
+        type: "text" as const,
+        text: JSON.stringify({ outcome: "started", detail: "手机端已记录用户的原始命令。" }),
+      }];
+      try {
+        content.push(...observationContent(await device.observe()));
+      } catch {
+        content[0] = {
           type: "text",
-          text: JSON.stringify({ outcome: "started", detail: "手机端已记录用户的原始命令。" }),
-        }],
+          text: JSON.stringify({
+            outcome: "started",
+            detail: "手机端已记录用户的原始命令，但首个观察暂未返回。",
+            next_action: "device_observe",
+          }),
+        };
+      }
+      return {
+        content,
       };
     },
   );
-  server.tool("device_observe", "Read the current approved HuAHua phone screen before choosing the next action. Coordinates are always normalized from 0 to 1000 over this exact visual input.", {}, async () => {
+  server.tool("device_observe", "Read a fresh semantic phone observation only when no current observation is available or a previous result requires re-observation. Successful actions already return the next observation. Use current semantic refs for device_tap_element; request visual evidence explicitly only when required.", {}, async () => {
     try {
       const readiness = phoneControlState(await client.health(device.current.card));
       if (readiness.state !== "connected") {
@@ -117,9 +141,17 @@ async function startMcpWithDevice(device: ResilientDeviceSession, client: Huahua
       throw error;
     }
   });
-  server.tool("device_tap", "Tap a normalized 0–1000 coordinate only after observing. If visual_layout is before_current, only the right CURRENT half (x >= 500) is actionable.", actionSchema({ x: normalizedCoordinate(), y: normalizedCoordinate() }), async ({ x, y, step_summary, observation_id }) => commandResult(device, heartbeat, { action: "tap", x, y, stepSummary: step_summary, expectedObservationId: observation_id }));
-  server.tool("device_tap_element", "Tap an interactive ui_tree ref returned by the current observation. Prefer this when the intended element has an unambiguous ref.", actionSchema({ ref: z.string().min(1) }), async ({ ref, step_summary, observation_id }) => commandResult(device, heartbeat, { action: "tap_element", targetRef: ref, stepSummary: step_summary, expectedObservationId: observation_id }));
-  server.tool("device_swipe", "Swipe using normalized 0–1000 coordinates only after observing. On a before_current frame, both endpoints must be on CURRENT (x >= 500).", actionSchema({ x: normalizedCoordinate(), y: normalizedCoordinate(), endX: normalizedCoordinate(), endY: normalizedCoordinate() }), async ({ x, y, endX, endY, step_summary, observation_id }) => commandResult(device, heartbeat, { action: "swipe", x, y, endX, endY, stepSummary: step_summary, expectedObservationId: observation_id }));
+  server.tool("device_observe_visual", "Request exactly one current visual evidence image. Use only when the semantic tree is unavailable, the UI is self-drawn, layout meaning is ambiguous, or visual verification is necessary; it is not the default control payload.", {}, async () => {
+    const readiness = phoneControlState(await client.health(device.current.card));
+    if (readiness.state !== "connected") {
+      return { content: [{ type: "text" as const, text: JSON.stringify(readiness) }], isError: true };
+    }
+    const observation = await device.observe(true);
+    return { content: observationContent(observation, true) };
+  });
+  server.tool("device_tap", "Tap a normalized 0–1000 coordinate only after observing. Use visual coordinates only after explicit visual evidence; otherwise prefer an unambiguous current semantic ref.", actionSchema({ x: normalizedCoordinate(), y: normalizedCoordinate() }), async ({ x, y, step_summary, observation_id }) => commandResult(device, heartbeat, { action: "tap", x, y, stepSummary: step_summary, expectedObservationId: observation_id }));
+  server.tool("device_tap_element", "Tap an actionable ref from the current Android semantic snapshot or diff. Prefer this when the intended current ref is unambiguous; stale refs require a fresh observation.", actionSchema({ ref: z.string().min(1) }), async ({ ref, step_summary, observation_id }) => commandResult(device, heartbeat, { action: "tap_element", targetRef: ref, stepSummary: step_summary, expectedObservationId: observation_id }));
+  server.tool("device_swipe", "Swipe using normalized 0–1000 coordinates only after observing explicit visual evidence.", actionSchema({ x: normalizedCoordinate(), y: normalizedCoordinate(), endX: normalizedCoordinate(), endY: normalizedCoordinate() }), async ({ x, y, endX, endY, step_summary, observation_id }) => commandResult(device, heartbeat, { action: "swipe", x, y, endX, endY, stepSummary: step_summary, expectedObservationId: observation_id }));
   server.tool("device_back", "Press Back only after observing the current approved HuAHua phone screen.", actionSchema({}), async ({ step_summary, observation_id }) => commandResult(device, heartbeat, { action: "back", stepSummary: step_summary, expectedObservationId: observation_id }));
   server.tool("device_home", "Go Home only after observing the current approved HuAHua phone screen.", actionSchema({}), async ({ step_summary, observation_id }) => commandResult(device, heartbeat, { action: "home", stepSummary: step_summary, expectedObservationId: observation_id }));
   server.tool("device_launch_app", "Launch an installed Android package only after observing the current approved HuAHua phone screen.", actionSchema({ packageName: z.string().min(1) }), async ({ packageName, step_summary, observation_id }) => commandResult(device, heartbeat, { action: "launch", packageName, stepSummary: step_summary, expectedObservationId: observation_id }));
@@ -129,7 +161,6 @@ async function startMcpWithDevice(device: ResilientDeviceSession, client: Huahua
     const vc = await heartbeat.fetchVoiceCommandNow();
     const cp: Record<string, unknown> = { outcome: "completed", detail: "手机端已显示任务已完成。" }; if (vc) cp.pending_voice_command = vc; return { content: [{ type: "text", text: JSON.stringify(cp) }] };
   });
-  const transport = new StdioServerTransport();
   attachTrustedSessionHeartbeatToTransport(heartbeat, transport);
   await server.connect(transport);
 }
@@ -146,23 +177,30 @@ function normalizedCoordinate() {
   return z.number().int().min(0).max(1000);
 }
 
-function observationContent(observation: DeviceObservation) {
-  return [
-    { type: "image" as const, data: observation.imageBase64, mimeType: observation.imageMimeType },
-    {
-      type: "text" as const,
-      text: JSON.stringify({
-        observation_id: observation.id,
-        foreground_app: observation.foregroundApp,
-        captured_at_ms: observation.capturedAtMs,
-        coordinate_space: observation.coordinateSpace,
-        visual_layout: observation.visualLayout,
-        ui_tree_status: observation.uiTreeStatus,
-        ui_tree_reason_code: observation.uiTreeReasonCode,
-        ui_tree: observation.uiTree,
-      }),
-    },
+function observationContent(observation: DeviceObservation, includeVisual = false) {
+  const payload: Record<string, unknown> = {
+    observation_id: observation.id,
+    foreground_app: observation.foregroundApp,
+    captured_at_ms: observation.capturedAtMs,
+    ui_tree_status: observation.uiTreeStatus,
+    ...(observation.uiTreeReasonCode ? { ui_tree_reason_code: observation.uiTreeReasonCode } : {}),
+    ...(observation.semanticSnapshot ? { semantic_snapshot: observation.semanticSnapshot } : {}),
+    ...(observation.semanticDiff ? { semantic_diff: observation.semanticDiff } : {}),
+    ...(observation.visualFallbackRequired ? {
+      visual_fallback_required: true,
+      ...(observation.visualFallbackReasonCode ? { visual_fallback_reason_code: observation.visualFallbackReasonCode } : {}),
+      next_action: "device_observe_visual",
+    } : {}),
+  };
+  const content: Array<{ type: "text"; text: string } | { type: "image"; data: string; mimeType: string }> = [
+    { type: "text", text: JSON.stringify(payload) },
   ];
+  if (!includeVisual) return content;
+  if (!observation.imageBase64 || !observation.imageMimeType) {
+    throw new Error("手机未返回视觉证据；请稍后重新调用 device_observe_visual。");
+  }
+  content.push({ type: "image" as const, data: observation.imageBase64, mimeType: observation.imageMimeType });
+  return content;
 }
 
 function commandContent(response: DeviceCommandResponse) {

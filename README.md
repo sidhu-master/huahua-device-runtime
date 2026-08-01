@@ -83,16 +83,28 @@ coordinate or a cached screenshot:
 
 1. The AI calls `device_task_start` once and copies the user's complete original
    phone-control request into `original_user_command` for the phone's local history.
-2. The AI calls `device_observe` and receives the current image, foreground
-   app, screen dimensions, capture time, and an opaque `observation_id`.
+2. `device_task_start` normally returns the first current semantic snapshot or
+   semantic diff, foreground app, capture time, and an opaque `observation_id`.
+   The Android phone is the only semantic projection source; the MCP host does
+   not compact or filter a raw UI tree again. The AI calls `device_observe` only
+   when that observation is unavailable or explicitly stale.
 3. The AI chooses one bounded action and sends that exact `observation_id`
    with a short user-visible step summary.
 4. The phone rejects the action if the id is missing or no longer current.
 5. The existing HuAHua engine performs the permitted action, preserves its
    normal safety/handoff behavior, records a receipt locally, and captures a
    fresh observation when possible.
-6. The AI uses the receipt and fresh observation to decide whether to continue
-   or finish. A successful tap alone is never treated as task completion.
+6. The AI uses the receipt and fresh semantic observation to decide whether to
+   continue or finish. That returned observation is reused directly for the next
+   action; the AI does not insert another observe call unless recovery requires
+   it. Current semantic refs are valid only for that observation. A successful
+   tap alone is never treated as task completion.
+
+Screenshots are visual evidence, not the default control payload. Call
+`device_observe_visual` only when the semantic tree is unavailable, the UI is
+self-drawn, layout meaning is ambiguous, or visual verification is necessary.
+It requests one current image; a semantic observation that advertises a visual
+fallback explicitly tells the AI to use this tool.
 
 Semantic screen state and fresh evidence keep the AI grounded on the physical
 device while planning and verification remain on the AI host. The Android phone

@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { HuahuaLanClient, parseConnectionCard } from "../dist/index.js";
+import { HuahuaLanClient, parseConnectionCard, startMcpWithDevice } from "../dist/index.js";
 import { HostIdentityStore } from "../dist/host-identity-store.js";
 import { DeviceProfileStore } from "../dist/device-profile-store.js";
 import { DeviceSessionManager } from "../dist/device-session-manager.js";
-import { runDirectCliCommand } from "../dist/cli-command-runner.js";
+import { prepareHost } from "../dist/prepare-host.js";
 import { resolveHostDisplayName } from "../dist/host-display-name.js";
 import { ActionRequiresFreshObservationError, ResilientDeviceSession } from "../dist/resilient-device-session.js";
 import { TrustedSessionHeartbeat, attachTrustedSessionHeartbeatToTransport } from "../dist/trusted-session-heartbeat.js";
@@ -12,6 +12,10 @@ import { generateKeyPairSync } from "node:crypto";
 import { mkdtemp, readFile, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 
 const cardText = "huahua://device-agent/v1?connection_id=Y29ubmVjdGlvbi0x&endpoint=aHR0cDovLzE5Mi4xNjguMS4xMDozODQ3Mw&token=Ym9vdHN0cmFwLXNlY3JldA&name=UGl4ZWwgOQ&expires_at_ms=4102444800000";
 
@@ -21,18 +25,145 @@ test("declares the official public package name", async () => {
   assert.equal(manifest.name, "@newwe/huahua");
 });
 
+test("MCP maps Android semantic snapshots and diffs without default visual content", async () => {
+  const observedUrls = [];
+  const client = new HuahuaLanClient(async (url, init = {}) => {
+    if (url.endsWith("/v3/tasks/start")) return json({ ok: true });
+    if (url.endsWith("/v1/health")) return json({ ok: true, phone_control_ready: true });
+    if (url.endsWith("/v2/trusted-sessions/heartbeat")) return json({ ok: true });
+    if (url.includes("/v3/commands")) {
+      return json({
+        ok: true,
+        outcome: "succeeded",
+        detail: "已打开购物车",
+        observation: semanticDiffObservation("obs-after-action", "snapshot-cart"),
+      });
+    }
+    if (url.includes("/v3/observe")) {
+      observedUrls.push(url);
+      if (url.endsWith("&visual=true")) {
+        return json({
+          ...semanticDiffObservation("obs-visual", "snapshot-cart"),
+          image_base64: "AQI=",
+          image_mime_type: "image/jpeg",
+          coordinate_space: "normalized_0_to_1000",
+          visual_layout: "single",
+        });
+      }
+      if (observedUrls.length === 1) return json(semanticSnapshotObservation("obs-first", "snapshot-home"));
+      return json({
+        ...semanticDiffObservation("obs-normal", "snapshot-home"),
+        visual_fallback_required: true,
+        visual_fallback_reason_code: "UI_TREE_UNAVAILABLE",
+        image_base64: "AQI=",
+        image_mime_type: "image/jpeg",
+      });
+    }
+    throw new Error(`unexpected request: ${url} ${JSON.stringify(init)}`);
+  });
+  const device = new ResilientDeviceSession(trustedSession("http://127.0.0.1:1"), undefined, client);
+  const [mcpTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  await startMcpWithDevice(device, client, serverTransport);
+  const mcp = new Client({ name: "semantic-contract-test", version: "1.0.0" });
+  await mcp.connect(mcpTransport);
+
+  try {
+    const started = await mcp.callTool({ name: "device_task_start", arguments: { original_user_command: "打开购物车" } });
+    assert.equal(imageContent(started).length, 0);
+    assert.deepEqual(textPayload(started).semantic_snapshot, semanticSnapshotObservation("obs-first", "snapshot-home").semantic_snapshot);
+    assert.equal(/"ui_tree"/.test(JSON.stringify(started.content)), false);
+
+    const normal = await mcp.callTool({ name: "device_observe", arguments: {} });
+    assert.equal(imageContent(normal).length, 0);
+    assert.equal(textPayload(normal).visual_fallback_required, true);
+    assert.equal(textPayload(normal).next_action, "device_observe_visual");
+    assert.deepEqual(textPayload(normal).semantic_diff, semanticDiffObservation("obs-normal", "snapshot-home").semantic_diff);
+
+    const action = await mcp.callTool({ name: "device_tap", arguments: { x: 500, y: 500, step_summary: "打开购物车", observation_id: "obs-normal" } });
+    assert.equal(imageContent(action).length, 0);
+    assert.deepEqual(textPayload(action).semantic_diff, semanticDiffObservation("obs-after-action", "snapshot-cart").semantic_diff);
+    assert.equal(observedUrls.length, 2, "actions consume their returned observation instead of observing again");
+
+    const visual = await mcp.callTool({ name: "device_observe_visual", arguments: {} });
+    assert.equal(imageContent(visual).length, 1);
+    assert.equal(imageContent(visual)[0].data, "AQI=");
+    assert.match(observedUrls[2], /\/v3\/observe\?host_id=host-a&visual=true$/);
+  } finally {
+    await mcp.close();
+  }
+});
+
+function json(body) {
+  return new Response(JSON.stringify(body));
+}
+
+function semanticSnapshotObservation(observationId, snapshotId) {
+  return {
+    ok: true,
+    observation_id: observationId,
+    captured_at_ms: 100,
+    foreground_app: "com.example.shop",
+    ui_tree_status: "available",
+    semantic_snapshot: {
+      snapshot_id: snapshotId,
+      status: "available",
+      foreground_app: "com.example.shop",
+      captured_at_ms: 100,
+      raw_node_count: 9,
+      semantic_node_count: 2,
+      semantic_character_count: 27,
+      lines: [{ ref: "buy", source_index: 3, depth: 1, role: "button", label: "加入购物车" }],
+    },
+  };
+}
+
+function semanticDiffObservation(observationId, previousSnapshotId) {
+  return {
+    ok: true,
+    observation_id: observationId,
+    captured_at_ms: 200,
+    foreground_app: "com.example.shop",
+    ui_tree_status: "available",
+    semantic_diff: {
+      previous_snapshot_id: previousSnapshotId,
+      current_snapshot_id: "snapshot-cart",
+      page_changed: false,
+      added: [],
+      removed: [],
+      changed: [{ ref: "buy", source_index: 3, depth: 1, role: "button", label: "已加入购物车" }],
+    },
+  };
+}
+
+function imageContent(result) {
+  return result.content.filter(item => item.type === "image");
+}
+
+function textPayload(result) {
+  return JSON.parse(result.content.find(item => item.type === "text" && item.text.includes("observation_id")).text);
+}
+
+test("rejects one-shot phone control commands and requires the persistent MCP server", () => {
+  for (const command of ["pair", "status", "task-start", "observe", "command", "task-complete"]) {
+    const result = spawnSync(process.execPath, [fileURLToPath(new URL("../dist/cli.js", import.meta.url)), command], {
+      encoding: "utf8",
+    });
+
+    assert.equal(result.status, 2, command);
+    assert.match(result.stderr, /手机操作只支持通过常驻 MCP 工具执行/, command);
+  }
+});
+
 test("prepare initializes the computer identity before a connection card is consumed", async () => {
   const output = [];
   let prepares = 0;
 
-  await runDirectCliCommand(["prepare"], {
+  await prepareHost({
     sessions: {
       prepare: async () => {
         prepares += 1;
         return { hostId: "host-ready" };
       },
-      pair: async () => { throw new Error("pair must not run during prepare"); },
-      resume: async () => { throw new Error("resume must not run during prepare"); },
     },
     hostName: "Sid的Mac mini",
     write: value => output.push(JSON.parse(value)),
@@ -57,37 +188,6 @@ test("maps a paired phone with incomplete phone setup to phone_setup_required", 
   assert.deepEqual(module.phoneControlState({ ok: true, phone_control_ready: true }), {
     state: "connected",
   });
-});
-
-test("direct CLI status waits for phone setup without requesting a screenshot", async () => {
-  const output = [];
-  const session = trustedSession("http://phone");
-  let observations = 0;
-
-  await runDirectCliCommand(["status", "--device", "agent-device-a"], {
-    sessions: {
-      prepare: async () => ({ hostId: "host-a" }),
-      pair: async () => { throw new Error("pair is not expected"); },
-      resume: async () => session,
-    },
-    client: {
-      health: async () => ({ ok: true, phone_control_ready: false }),
-      observe: async () => {
-        observations += 1;
-        return observation("unexpected");
-      },
-      command: async () => { throw new Error("command is not expected"); },
-    },
-    write: value => output.push(JSON.parse(value)),
-  });
-
-  assert.equal(observations, 0);
-  assert.deepEqual(output, [{
-    state: "phone_setup_required",
-    detail: "电脑 AI 已连接，请先在手机中完成控制准备。",
-    device_id: "agent-device-a",
-    device_name: "Pixel 9",
-  }]);
 });
 
 test("keeps a trusted phone connection alive while the MCP process is running", async () => {
@@ -408,82 +508,6 @@ test("shared session manager pairs once and persists the reusable device profile
   }]);
 });
 
-test("direct CLI resumes an approved device and writes the current observation image locally", async () => {
-  const lines = [];
-  const writes = [];
-  await runDirectCliCommand(["observe", "--device", "agent-device-a", "--image-file", "/tmp/screen.jpg"], {
-    sessions: {
-      resume: async deviceId => ({
-        hostId: "host-a", accessToken: "short-token", expiresAtMs: 9999,
-        card: { connectionId: "trusted-session", endpoint: "http://phone", bootstrapToken: "", displayName: "Pixel 9", expiresAtMs: 9999, deviceId },
-      }),
-    },
-    client: {
-      observe: async () => observation("obs-1"),
-      command: async () => { throw new Error("command is not expected"); },
-    },
-    writeImage: async (path, bytes) => writes.push({ path, bytes: [...bytes] }),
-    write: value => lines.push(value),
-  });
-
-  assert.deepEqual(writes, [{ path: "/tmp/screen.jpg", bytes: [1, 2] }]);
-  assert.deepEqual(JSON.parse(lines[0]), {
-    device_id: "agent-device-a",
-    device_name: "Pixel 9",
-    observation: {
-      observation_id: "obs-1",
-      captured_at_ms: 100,
-      image_mime_type: "image/jpeg",
-      image_file: "/tmp/screen.jpg",
-      foreground_app: "com.example",
-      coordinate_space: "normalized_0_to_1000",
-      visual_layout: "single",
-      ui_tree_status: "unavailable",
-      ui_tree: [],
-    },
-  });
-});
-
-test("direct CLI preserves the observation precondition for a tap", async () => {
-  let commandInput;
-  await runDirectCliCommand([
-    "command", "--device", "agent-device-a", "--action", "tap", "--x", "12", "--y", "34",
-    "--observation-id", "obs-1", "--summary", "点击搜索框",
-  ], {
-    sessions: { resume: async () => ({ hostId: "host-a", accessToken: "short-token", expiresAtMs: 9999, card: { connectionId: "trusted-session", endpoint: "http://phone", bootstrapToken: "", displayName: "Pixel 9", expiresAtMs: 9999, deviceId: "agent-device-a" } }) },
-    client: {
-      observe: async () => { throw new Error("observe is not expected"); },
-      command: async (_session, input) => {
-        commandInput = input;
-        return { outcome: "succeeded", detail: "手机操作已完成。" };
-      },
-    },
-    writeImage: async () => { throw new Error("image write is not expected"); },
-    write: () => {},
-  });
-
-  assert.deepEqual(commandInput, { action: "tap", x: 12, y: 34, stepSummary: "点击搜索框", expectedObservationId: "obs-1" });
-});
-
-test("direct CLI starts a task with the user's original command", async () => {
-  let originalCommand;
-  await runDirectCliCommand(
-    ["task-start", "--device", "agent-device-a", "--command", "打开抖音，搜索概率论"],
-    {
-      sessions: { resume: async () => trustedSession(), prepare: async () => {}, pair: async () => {} },
-      client: {
-        health: async () => ({ ok: true }),
-        observe: async () => { throw new Error("observe is not expected"); },
-        command: async () => { throw new Error("command is not expected"); },
-        startTask: async (_session, command) => { originalCommand = command; },
-      },
-      write: () => {},
-    },
-  );
-
-  assert.equal(originalCommand, "打开抖音，搜索概率论");
-});
-
 test("reports remote task completion through the trusted LAN session", async () => {
   const requests = [];
   const client = new HuahuaLanClient(async (url, init) => {
@@ -500,31 +524,6 @@ test("reports remote task completion through the trusted LAN session", async () 
     hostId: "host-a",
     summary: "抖音搜索已完成",
   });
-});
-
-test("direct CLI reports re-observation instead of replaying an action after recovery", async () => {
-  const lines = [];
-  let actionAttempts = 0;
-  await runDirectCliCommand([
-    "command", "--device", "agent-device-a", "--action", "tap", "--x", "12", "--y", "34",
-    "--observation-id", "obs-1", "--summary", "点击搜索框",
-  ], {
-    sessions: {
-      resume: async () => trustedSession("http://192.168.1.55:45678"),
-    },
-    client: {
-      observe: async () => observation("unused"),
-      command: async () => {
-        actionAttempts += 1;
-        throw new TypeError("fetch failed");
-      },
-    },
-    writeImage: async () => { throw new Error("image write is not expected"); },
-    write: value => lines.push(value),
-  });
-
-  assert.equal(actionAttempts, 1);
-  assert.equal(JSON.parse(lines[0]).outcome, "reobserve_required");
 });
 
 test("retries one observation after a LAN address change by resuming the trusted session", async () => {
@@ -684,12 +683,13 @@ function trustedSession(endpoint, expiresAtMs = Date.now() + 10 * 60_000, access
 
 function observation(id) {
   return {
-    id, capturedAtMs: 100, imageBase64: "AQI=", imageMimeType: "image/jpeg", foregroundApp: "com.example",
-    coordinateSpace: "normalized_0_to_1000", visualLayout: "single", uiTreeStatus: "unavailable", uiTree: [],
+    id, capturedAtMs: 100, foregroundApp: "com.example", uiTreeStatus: "available",
+    semanticSnapshot: semanticSnapshotObservation(id, "snapshot-current").semantic_snapshot,
+    visualFallbackRequired: false,
   };
 }
 
-test("uses the v3 normalized observation route and only the returned short token after resume", async () => {
+test("uses the v3 semantic observation route and only the returned short token after resume", async () => {
   const session = {
     hostId: "host-a",
     accessToken: "short-token",
@@ -702,7 +702,7 @@ test("uses the v3 normalized observation route and only the returned short token
   const client = new HuahuaLanClient(async (url, init) => {
     assert.equal(url, "http://192.168.1.55:45678/v3/observe?host_id=host-a");
     assert.equal(init.headers.authorization, "Bearer short-token");
-    return new Response(JSON.stringify({ ok: true, observation_id: "obs-1", captured_at_ms: 1, image_base64: "", image_mime_type: "image/jpeg", foreground_app: "", visual_layout: "single", coordinate_space: "normalized_0_to_1000", ui_tree_status: "unavailable", ui_tree: [] }));
+    return new Response(JSON.stringify(semanticSnapshotObservation("obs-1", "snapshot-current")));
   });
 
   await client.observe(session);
@@ -732,7 +732,7 @@ test("waits for explicit phone approval before returning a device session", asyn
   assert.equal(session.hostId, "host-a");
 });
 
-test("reads an authorized current-screen observation", async () => {
+test("reads an authorized semantic observation without visual evidence", async () => {
   const card = parseConnectionCard(cardText, 1);
   const session = { card, hostId: "host-a", accessToken: "host-token", expiresAtMs: 9999 };
   const client = new HuahuaLanClient(async (url, init) => {
@@ -742,22 +742,19 @@ test("reads an authorized current-screen observation", async () => {
       ok: true,
       observation_id: "obs-1",
       captured_at_ms: 100,
-      image_base64: "AQI=",
-      image_mime_type: "image/jpeg",
       foreground_app: "com.example.app",
-      visual_layout: "single",
-      coordinate_space: "normalized_0_to_1000",
-      ui_tree_status: "unavailable",
-      ui_tree: [],
+      ui_tree_status: "available",
+      semantic_snapshot: semanticSnapshotObservation("obs-1", "snapshot-current").semantic_snapshot,
     }));
   });
 
   const observation = await client.observe(session);
 
   assert.equal(observation.id, "obs-1");
-  assert.equal(observation.imageBase64, "AQI=");
-  assert.equal(observation.imageMimeType, "image/jpeg");
+  assert.equal(observation.imageBase64, undefined);
+  assert.equal(observation.imageMimeType, undefined);
   assert.equal(observation.foregroundApp, "com.example.app");
+  assert.deepEqual(observation.semanticSnapshot, semanticSnapshotObservation("obs-1", "snapshot-current").semantic_snapshot);
 });
 
 test("sends ordinary text with its observed-page precondition", async () => {

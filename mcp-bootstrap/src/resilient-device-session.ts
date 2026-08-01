@@ -66,13 +66,13 @@ export class ResilientDeviceSession {
     }
   }
 
-  async observe(): Promise<DeviceObservation> {
+  async observe(visual = false): Promise<DeviceObservation> {
     await this.ensureConnected();
     try {
-      return await this.client.observe(this.current);
+      return await this.client.observe(this.current, visual);
     } catch (error) {
       await this.recoverAfterTransportFailure(error);
-      return this.client.observe(this.current);
+      return this.client.observe(this.current, visual);
     }
   }
 
