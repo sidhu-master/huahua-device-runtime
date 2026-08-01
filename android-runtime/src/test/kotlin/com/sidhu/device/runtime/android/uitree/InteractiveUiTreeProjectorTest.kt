@@ -133,4 +133,46 @@ class InteractiveUiTreeProjectorTest {
         assertEquals(listOf(1), result.nodes.map { it.sourceIndex })
         assertEquals("正在加载", result.nodes.single().label)
     }
+
+    @Test
+    fun repairsMeaningfulDescendantParentToNearestRetainedAncestorAndCarriesState() {
+        val result = InteractiveUiTreeProjector().project(
+            rawNodes = listOf(
+                RawUiNode(
+                    index = 0,
+                    role = "android.widget.LinearLayout",
+                    bounds = UiTreeBounds(0, 0, 1080, 480),
+                ),
+                RawUiNode(
+                    index = 1,
+                    parentIndex = 0,
+                    role = "android.widget.Button",
+                    label = "订单",
+                    bounds = UiTreeBounds(0, 0, 1080, 180),
+                    clickable = true,
+                    selected = true,
+                    focused = true,
+                ),
+                RawUiNode(
+                    index = 2,
+                    parentIndex = 1,
+                    role = "android.widget.LinearLayout",
+                    bounds = UiTreeBounds(0, 0, 1000, 140),
+                ),
+                RawUiNode(
+                    index = 3,
+                    parentIndex = 2,
+                    role = "android.widget.TextView",
+                    label = "待付款",
+                    bounds = UiTreeBounds(40, 20, 400, 56),
+                ),
+            ),
+            foregroundPackage = "com.example",
+            capturedAtMs = 1L,
+        )
+
+        assertEquals(listOf(null, 1), result.nodes.map { it.parentSourceIndex })
+        assertTrue(result.nodes.first { it.sourceIndex == 1 }.selected)
+        assertTrue(result.nodes.first { it.sourceIndex == 1 }.focused)
+    }
 }

@@ -16,7 +16,8 @@ class UiAutomationHelperClientTest {
                 "index":3,"parent_index":null,"role":"android.widget.Button",
                 "label":"搜索","identifier":"com.example:id/search",
                 "bounds":{"x":10,"y":20,"width":180,"height":64},
-                "visible_to_user":true,"enabled":true,"clickable":true
+                "visible_to_user":true,"enabled":true,"clickable":true,
+                "focused":true,"selected":true
               }]
             }
             """.trimIndent(),
@@ -26,6 +27,8 @@ class UiAutomationHelperClientTest {
         assertEquals(42L, response.capturedAtMs)
         assertEquals("搜索", response.nodes.single().label)
         assertTrue(response.nodes.single().clickable)
+        assertTrue(response.nodes.single().focused)
+        assertTrue(response.nodes.single().selected)
     }
 
     @Test

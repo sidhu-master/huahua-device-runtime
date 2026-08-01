@@ -30,6 +30,7 @@ object UiAutomationHelperClient {
                     clickable = node.boolean("clickable", false),
                     focusable = node.boolean("focusable", false),
                     focused = node.boolean("focused", false),
+                    selected = node.boolean("selected", false),
                     editable = node.boolean("editable", false),
                     scrollable = node.boolean("scrollable", false),
                     activeWindow = node.boolean("active_window", true),

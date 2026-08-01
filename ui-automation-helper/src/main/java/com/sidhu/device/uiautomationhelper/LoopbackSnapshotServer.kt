@@ -118,6 +118,7 @@ internal class LoopbackSnapshotServer(
             "clickable" to node.isClickable,
             "focusable" to node.isFocusable,
             "focused" to node.isFocused,
+            "selected" to node.isSelected,
             "editable" to node.isEditable,
             "scrollable" to node.isScrollable,
             "active_window" to true,

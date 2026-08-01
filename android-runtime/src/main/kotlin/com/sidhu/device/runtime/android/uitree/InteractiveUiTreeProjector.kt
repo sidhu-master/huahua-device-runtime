@@ -51,32 +51,49 @@ class InteractiveUiTreeProjector {
                         hasCollectionAncestor(node)
                     ))
         }
+        val rawNodesByIndex = rawNodes.associateBy { it.index }
+        val retainedByIndex = selected.associateBy { it.index }
 
-        val parentLabels = selected
-            .filter { it.label?.isNotBlank() == true }
-            .associate { it.index to it.label!!.trim() }
+        fun nearestRetainedParentIndex(node: RawUiNode): Int? {
+            var parentIndex = node.parentIndex
+            while (parentIndex != null) {
+                if (retainedByIndex.containsKey(parentIndex)) return parentIndex
+                parentIndex = rawNodesByIndex[parentIndex]?.parentIndex
+            }
+            return null
+        }
+
+        val projectedNodes = selected.map { node ->
+            node to nearestRetainedParentIndex(node)
+        }
+        val parentLabels = projectedNodes
+            .mapNotNull { (node, _) -> node.label?.trim()?.takeIf { it.isNotEmpty() }?.let(node.index::to) }
+            .toMap()
 
         return UiTreeCapture(
             status = UiTreeStatus.AVAILABLE,
-            nodes = selected.mapIndexed { position, node ->
-                val parentLabel = node.parentIndex?.let(parentLabels::get)
+            nodes = projectedNodes.mapIndexed { position, (node, parentSourceIndex) ->
+                val parentLabel = parentSourceIndex?.let(parentLabels::get)
                 val label = node.label?.trim()?.takeUnless { it == parentLabel }
                 InteractiveUiNode(
                     ref = "e${position + 1}",
                     sourceIndex = node.index,
-                    parentSourceIndex = node.parentIndex,
+                    parentSourceIndex = parentSourceIndex,
                     role = node.role,
                     label = label,
                     identifier = node.identifier?.trim()?.ifBlank { null },
                     bounds = checkNotNull(node.bounds),
                     enabled = node.enabled,
                     clickable = node.clickable,
+                    selected = node.selected,
+                    focused = node.focused,
                     editable = node.editable,
                     scrollable = node.scrollable,
                 )
             },
             foregroundPackage = foregroundPackage,
             capturedAtMs = capturedAtMs,
+            rawNodeCount = rawNodes.size,
         )
     }
 
