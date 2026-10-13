@@ -100,6 +100,15 @@ export class HuahuaLanClient {
       body: JSON.stringify({ hostId: session.hostId, mcpVersion: MCP_PACKAGE_VERSION }),
     }));
   }
+  /** Existing trusted LAN transport; credentials never enter model-visible results. */
+  async agentRequest(session: DeviceSession, operation: string, args: Record<string, unknown>): Promise<Record<string, any>> {
+    if (!["list", "start", "read", "events", "send", "pause", "resume", "interrupt", "inference_read", "inference_submit"].includes(operation)) throw new Error("Unknown agent operation");
+    return this.json(await this.fetchImpl(`${session.card.endpoint}/v4/agents/${operation}`, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${session.accessToken}` },
+      body: JSON.stringify({ ...args, host_id: session.hostId }),
+    }));
+  }
   async complete(session: DeviceSession, summary: string): Promise<void> {
     await this.json(await this.fetchImpl(`${session.card.endpoint}/v3/tasks/complete`, {
       method: "POST",

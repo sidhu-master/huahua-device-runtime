@@ -6,6 +6,8 @@ import { z } from "zod";
 import { DeviceCommandResponse, DeviceObservation, DeviceSession, DeviceStopError, HuahuaLanClient } from "./client.js";
 import { ActionRequiresFreshObservationError, ResilientDeviceSession } from "./resilient-device-session.js";
 import { attachTrustedSessionHeartbeatToTransport, TrustedSessionHeartbeat } from "./trusted-session-heartbeat.js";
+import { registerPhoneDelegationTools } from "./phone-delegation.js";
+import { registerPhoneAgentTools } from "./phone-agent-tools.js";
 import { phoneControlState } from "./phone-control-state.js";
 
 type SessionResumer = { resume(deviceId: string): Promise<DeviceSession> };
@@ -35,9 +37,11 @@ export async function startMcpWithDevice(
   const server = new McpServer(
     { name: "huahua-device-agent", version: MCP_PACKAGE_VERSION },
     {
-      instructions: "手机操作只能通过本常驻 MCP 完成。默认观察只提供 Android 生成的语义快照或增量和当前 refs，不提供图片。每个任务仅调用一次 device_task_start；它通常直接返回首个观察。每个成功动作也会返回下一步所需的新观察和 observation_id，必须直接复用，不要再次调用 device_observe。仅当首次观察缺失、返回 reobserve_required、恢复连接或用户暂停补充指令后，才调用 device_observe。当语义树不可用、界面自绘或布局含义不明确、或需要视觉验证时，才调用 device_observe_visual；该工具返回一张视觉证据图。",
+      instructions: "手机操作只能通过本常驻 MCP 完成。用 device_agent_inference_capabilities 查看宿主握手和已适配推理后端。已适配宿主的普通目标使用 device_agent_delegate，将小目标交给手机子 agent；手机持有唯一 loop/历史，MCP 用匹配的宿主推理适配提供决策。目前已验证后端只有 Codex，不得在 Claude/WorkBuddy 或未知客户端下擅自指定 inference_provider=codex 来绕过未适配错误，除非用户明确选择该后端。主会话用 device_agent_worker_status 查询结果，device_agent_control 用于引导、暂停、恢复或取消；暂停保留挂接，恢复自动继续。不要混用手动决策或旧直接动作工具。device_agent_start/next/reply 是通用手动采样协议，客户端自行用独立子任务模型处理时可用，但不能与自动桥混用。旧 device_task_start/device_* 只用于明确要求的直接控制诊断，复用动作返回的 observation_id，语义不足时用 device_observe_visual。",
     },
   );
+  const delegation = registerPhoneDelegationTools(server, device);
+  registerPhoneAgentTools(server, device, id => delegation.isAttached(id));
   heartbeat.onControlEvent(event => {
     void server.sendLoggingMessage({
       level: event.type === "control_paused" || event.type === "task_paused" ? "warning" : "info",
@@ -162,6 +166,8 @@ export async function startMcpWithDevice(
     const cp: Record<string, unknown> = { outcome: "completed", detail: "手机端已显示任务已完成。" }; if (vc) cp.pending_voice_command = vc; return { content: [{ type: "text", text: JSON.stringify(cp) }] };
   });
   attachTrustedSessionHeartbeatToTransport(heartbeat, transport);
+  const previousClose = transport.onclose;
+  transport.onclose = () => { previousClose?.(); void delegation.close(); };
   await server.connect(transport);
 }
 
@@ -258,3 +264,6 @@ export { DeviceSessionManager } from "./device-session-manager.js";
 export { ActionRequiresFreshObservationError, ResilientDeviceSession } from "./resilient-device-session.js";
 export { TrustedSessionHeartbeat } from "./trusted-session-heartbeat.js";
 export { phoneControlState } from "./phone-control-state.js";
+export { startFleetMcp } from "./fleet-mcp.js";
+export { DeviceFleet } from "./device-fleet.js";
+export { FleetTaskScheduler } from "./fleet-task-scheduler.js";

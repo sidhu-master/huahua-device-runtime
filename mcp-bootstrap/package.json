@@ -1,6 +1,6 @@
 {
   "name": "@newwe/huahua",
-  "version": "0.2.10",
+  "version": "0.3.0",
   "description": "Local LAN MCP adapter for a HuAHua device agent",
   "type": "module",
   "bin": {
@@ -13,11 +13,15 @@
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "test": "npm run build && node --test test/**/*.test.mjs"
+    "test": "npm run build && node --test test/**/*.test.mjs",
+    "prepack": "npm run build",
+    "prepublishOnly": "npm test"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
-    "bonjour-service": "1.4.3"
+    "bonjour-service": "1.4.3",
+    "smol-toml": "^1.9.1",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

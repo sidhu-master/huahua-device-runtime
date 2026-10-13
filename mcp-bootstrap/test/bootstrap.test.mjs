@@ -276,9 +276,9 @@ test("keeps a trusted phone connection alive while the MCP process is running", 
   );
 
   heartbeat.start();
-  await Promise.resolve();
+  await new Promise(resolve => setImmediate(resolve));
   scheduled();
-  await Promise.resolve();
+  await new Promise(resolve => setImmediate(resolve));
   heartbeat.stop();
 
   assert.equal(ticks, 2);

@@ -28,6 +28,9 @@ export class TrustedSessionHeartbeat {
   private timer: IntervalHandle | undefined;
   private sseActive = false;
   private sseStopped = false;
+  private sseAbort?: AbortController;
+  private sseRetry?: ReturnType<typeof setTimeout>;
+  private ticking = false;
   private phoneControlReadyEventSeen = false;
   private readonly phoneControlReadyWaiters = new Set<(ready: boolean) => void>();
   private readonly pendingControlEvents: PhoneControlEvent[] = [];
@@ -54,6 +57,8 @@ export class TrustedSessionHeartbeat {
     this.clearIntervalImpl(this.timer);
     this.timer = undefined;
     this.sseStopped = true;
+    this.sseAbort?.abort();
+    if (this.sseRetry) clearTimeout(this.sseRetry);
     this.resolvePhoneControlReadyWaiters(false);
   }
 
@@ -141,13 +146,15 @@ export class TrustedSessionHeartbeat {
     this.sseActive = true;
     try {
       const session = this.device.current;
+      this.sseAbort = new AbortController();
       const url = `${session.card.endpoint}/v3/events?host_id=${encodeURIComponent(session.hostId)}`;
       const res = await fetch(url, {
         headers: { "Authorization": `Bearer ${session.accessToken}` },
+        signal: this.sseAbort.signal,
       });
       if (!res.ok || !res.body) {
         this.sseActive = false;
-        setTimeout(() => void this.startSse(), 5_000);
+        if (!this.sseStopped) this.sseRetry = setTimeout(() => void this.startSse(), 5_000);
         return;
       }
       const reader = res.body.getReader();
@@ -169,7 +176,7 @@ export class TrustedSessionHeartbeat {
       // Connection dropped or session unavailable
     }
     this.sseActive = false;
-    if (!this.sseStopped) setTimeout(() => void this.startSse(), 3_000);
+    if (!this.sseStopped) this.sseRetry = setTimeout(() => void this.startSse(), 3_000);
   }
 
   private resolvePhoneControlReadyWaiters(ready: boolean): void {
@@ -204,6 +211,8 @@ export class TrustedSessionHeartbeat {
   }
 
   private tick(): void {
+    if (this.ticking || this.sseStopped) return;
+    this.ticking = true;
     void this.device.heartbeat().then((resp: Record<string, unknown> | undefined) => {
       if (resp && typeof resp.pending_voice_command === "string") {
         this._pendingVoiceCommand = resp.pending_voice_command;
@@ -217,7 +226,7 @@ export class TrustedSessionHeartbeat {
           this.acceptControlEvent(this.parseControlEvent(event));
         }
       }
-    }).catch(() => undefined);
+    }).catch(() => undefined).finally(() => { this.ticking = false; });
   }
 }
 

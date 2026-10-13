@@ -4,7 +4,7 @@ type SessionResumer = {
   resume(deviceId: string): Promise<DeviceSession>;
 };
 
-type DeviceClient = Pick<HuahuaLanClient, "observe" | "command"> & Partial<Pick<HuahuaLanClient, "heartbeat" | "startTask" | "complete">>;
+type DeviceClient = Pick<HuahuaLanClient, "observe" | "command"> & Partial<Pick<HuahuaLanClient, "heartbeat" | "startTask" | "complete" | "agentRequest">>;
 
 /** Returned after transport recovery when repeating the original action would be unsafe. */
 export class ActionRequiresFreshObservationError extends Error {
@@ -89,6 +89,18 @@ export class ResilientDeviceSession {
     }
   }
 
+  async agentRequest(operation: string, args: Record<string, unknown>): Promise<Record<string, any>> {
+    if (!this.client.agentRequest) throw new Error("当前 MCP 不支持手机子 agent，请更新 MCP。");
+    await this.ensureConnected();
+    try { return await this.client.agentRequest(this.current, operation, args); }
+    catch (error) {
+      await this.recoverAfterTransportFailure(error);
+      if (["list", "read", "events", "inference_read"].includes(operation)) {
+        return await this.client.agentRequest(this.current, operation, args);
+      }
+      throw new ActionRequiresFreshObservationError("连接已恢复；未重试子任务操作，请读取任务状态/当前推理请求后决定下一步。");
+    }
+  }
   async complete(summary: string): Promise<void> {
     if (!this.client.complete) {
       throw new Error("当前客户端不支持同步任务完成状态。请更新 HuAHua MCP 后重试。");

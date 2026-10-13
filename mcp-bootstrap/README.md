@@ -201,3 +201,56 @@ npm exec --yes @newwe/huahua@<published-version> serve --device '<device_id>'
 `_huahua-device-agent._tcp.` mDNS 服务；发现到的地址不作为授权依据。首次配对需要
 手机批准；后续恢复连接使用已保存主机私钥签名的挑战响应，且每次得到的控制令牌都是
 短期令牌。
+
+## Phone-owned GUI child / Codex inference
+
+`device_agent_start`, `device_agent_next`, `device_agent_reply`, and `device_agent_control` extend the existing paired MCP connection. No additional desktop client or API key is required. The Android session keeps its GUI loop, independent history, execution lease, guarded tools, human handoff and short programs; Codex supplies sampling decisions via the existing `/v4/agents/*` family. Original `/v3` direct-control tools remain compatible, but must not be mixed with a running child.
+
+Run the phone task in a dedicated Codex child context with only its goal. Model-visible request history isolation alone does not isolate the main Codex conversation. Start/reply return the next request or terminal state, waiting up to 20 seconds. If still waiting, use next; never replay a prior decision. Real screenshots are MCP image blocks, not base64 text. Signed challenges, pairing approvals, trusted-host identity and heartbeat retain their existing behavior. Read operations may retry after transport recovery; decision submissions never automatically replay. Android samples expire after 120 seconds.
+
+### Automatic native Codex inference bridge
+
+Use `device_agent_delegate` to submit a small goal and `device_agent_worker_status` for compact progress/outcome. The original paired connection is reused. The phone owns the only persistent agent loop/history; MCP supplies each sample using a fresh ephemeral native Codex app-server session with the phone's registered tools and actual images, captures one decision, closes the sampling session, and submits to the phone. No main conversation is inherited and no second desktop task loop is retained. Never mix manual decisions/raw device actions with an active bridge.
+
+The bridge uses the installed `codex` executable and existing login/model configuration. It does not edit global Codex settings or require additional model credentials. On macOS it adopts the system HTTPS proxy when proxy environment variables are absent. Pauses, steering, handoff and disconnect invalidate pending samples; submissions never automatically replay. Initialization overhead and cache reuse require measurement. Changes are local until this MCP package is published.
+
+Pausing stops native inference while keeping the transport attached; resuming on the phone automatically supplies a fresh sample. Server instructions advertise this flow as the default, and manual `device_agent_reply` is rejected for attached tasks. These behaviors are inside MCP/App, not global Codex settings or conversation memory.
+
+The first release targets Codex only. The phone retains its GUI loop and authoritative context; each model decision uses a fresh ephemeral app-server thread, without a desktop conversation or a parent model coordinating each step. Other host adapters remain experimental and are not selected automatically. The disposable Codex process disables plugins, Apps and recommended plugin context through upstream feature overrides; no global settings are changed. `device_agent_worker_status` includes `last_bootstrap_ms` (initialization/thread/context preparation after process construction), `last_model_ms` (turn start through decision), and total `last_sample_ms`; these exclude phone action execution. Phone deadlines and invalidation also abort stalled initialization/thread-start RPCs, so pausing or steering does not wait for an unrelated RPC timeout.
+
+### Host compatibility
+
+`device_agent_inference_capabilities` reports the actual client handshake, declared sampling support and verified backends. Auto delegation currently recognizes Codex only. Claude Code, WorkBuddy and unknown clients are rejected before a phone task is created, rather than silently borrowing Codex. Explicit `inference_provider=codex` is permitted only when the human deliberately chooses that backend. Standard manual sampling tools remain compatible, but automatic own-model inference and isolated child contexts require host support/adapters. `PhoneInferenceProvider` separates those adapters from the phone transport/loop; only the Codex adapter is implemented and verified.
+
+## Codex multi-phone mode (local development)
+
+Run one persistent server with `huahua serve --fleet` after pairing each phone through the existing connection-card flow. `serve --device <id>` remains available for single-phone compatibility. Fleet mode is included starting with version 0.3.0. Standard launch: `npx --yes @newwe/huahua@latest serve`. For local development:
+
+```json
+{
+  "mcpServers": {
+    "huahua": {
+      "command": "node",
+      "args": ["/absolute/path/to/mcp-bootstrap/dist/cli.js", "serve", "--fleet"]
+    }
+  }
+}
+```
+
+Build with `npm run build` first. Do not configure a separate MCP server for every phone. `device_list` lists paired identities (including offline/stale pairings); `check_online=true` performs a fresh connectivity/readiness check. Equal display names do not identify equal devices. With multiple pairings, `device_agent_delegate` requires `device_id`. It returns a desktop `task_id`; subsequent status/control tools take that ID, not a phone `agent_id`.
+
+Fleet tools are `device_list`, `device_agent_delegate`, `device_agent_worker_status`, `device_agent_tasks`, and `device_agent_control`. The main Codex session dispatches goals and reads compact results; the phone keeps its canonical GUI loop and each inference uses an isolated native Codex thread. Direct tap/manual sampling tools are deliberately absent from fleet mode. This version only accepts automatic Codex inference.
+
+The scheduler serializes GUI work per device and admits up to two active phones/model samples by default. Paused/human-handoff tasks retain their device, but release inference resources; resuming is refused while active phone slots are full. FIFO inference admission checks current request IDs/deadlines before sampling. Failed inference bridges enter recovery rather than silently selecting another model. The existing Android GUI lease serializes local and remote GUI execution.
+
+Task routing/goal/status is atomically stored in `~/.config/huahua-mcp/fleet-tasks.json` with restricted permissions; credentials and images are not stored there. A local kernel-owned lease prevents two fleet processes using the same journal; it is released on process exit/crash. Restarted nonterminal tasks require explicit `resume` or `interrupt`. Recovery reads existing phone tasks and reuses original request IDs; it never retries physical actions. A lost connection/start response must be reconciled before creating more work. An unrelated active phone task blocks dispatch instead of being interrupted.
+
+Two-device routing, concurrent execution, same-phone queuing, cancellation and recovery have protocol coverage. Actual fleet MCP has passed a one-phone Codex vision task; two physical phones still need concurrent isolation/cancellation verification. No public remote-control server is introduced.
+
+### Idle fleet connections
+
+`huahua serve` now defaults to fleet mode; `serve --fleet` remains an alias and `serve --device <id>` retains single-device compatibility. The MCP starts heartbeats for every paired device before any tool call, rescans profiles every 30 seconds, and stops maintenance when its transport closes. No model is sampled to keep a connection alive. Startup, discovery and reconnect are MCP responsibilities; there is no Codex-specific local configuration or extra desktop daemon. The host client must keep its ordinary MCP process running.
+
+### 0.3.0 release validation
+
+Validated fleet routing and independent pause/resume with two real phones, plus native Codex initialization and a real phone vision loop after process-scoped MCP isolation. Tests cover inherited MCP names (including dotted names), offline startup, FIFO admission, recovery identity and cancellation. Packaging rebuilds dist; publishing runs tests. Only Codex native inference is verified; other host adapters are experimental and must not silently select Codex.

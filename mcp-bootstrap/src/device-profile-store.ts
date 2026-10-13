@@ -31,6 +31,10 @@ export class DeviceProfileStore {
     return (await this.loadAll())[deviceId];
   }
 
+  async list(): Promise<DeviceProfile[]> {
+    return Object.values(await this.loadAll()).sort((a, b) => a.deviceId.localeCompare(b.deviceId));
+  }
+
   private async loadAll(): Promise<Record<string, DeviceProfile>> {
     try {
       const profiles = JSON.parse(await readFile(this.file, "utf8")) as Record<string, DeviceProfile>;
