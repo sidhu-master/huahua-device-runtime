@@ -94,13 +94,13 @@ test('fleet MCP explicitly routes tasks, rejects non-Codex hosts and ambiguous d
  try {
   const toolNames=(await client.listTools()).tools.map(t=>t.name);assert.ok(!toolNames.includes('device_tap'));assert.ok(!toolNames.includes('device_agent_reply'));
   const list=JSON.parse((await client.callTool({name:'device_list',arguments:{}})).content[0].text);assert.deepEqual(list.devices.map(d=>d.device_id),['A','B']);
-  assert.equal((await client.callTool({name:'device_agent_delegate',arguments:{goal:'goal',request_id:'r'}})).isError,true);
-  const result=JSON.parse((await client.callTool({name:'device_agent_delegate',arguments:{device_id:'B',goal:'goal',request_id:'r'}})).content[0].text);
+  assert.equal((await client.callTool({name:'device_agent_delegate',arguments:{goal:'goal',request_id:'r',current_model:'gpt-6-astra',current_reasoning_effort:'low',model_selection_confirmed:true}})).isError,true);
+  const result=JSON.parse((await client.callTool({name:'device_agent_delegate',arguments:{device_id:'B',goal:'goal',request_id:'r',current_model:'gpt-6-astra',current_reasoning_effort:'low',model_selection_confirmed:true}})).content[0].text);
   await until(()=>f.scheduler.status(result.task_id).state==='COMPLETED');assert.equal(f.calls.filter(c=>c.op==='start')[0].device,'B');
   assert.equal((await client.callTool({name:'device_agent_worker_status',arguments:{task_id:'unknown'}})).isError,true);
  }finally{await f.scheduler.close();await client.close();await host.server.close();}
  const second=setup();const [ct2,st2]=InMemoryTransport.createLinkedPair();const host2=await startFleetMcp(fleet,st2,second.scheduler);const other=new Client({name:'WorkBuddy',version:'1'});await other.connect(ct2);
- try{const r=await other.callTool({name:'device_agent_delegate',arguments:{device_id:'B',goal:'goal',request_id:'r'}});assert.equal(r.isError,true);assert.equal(second.scheduler.list().length,0);}
+ try{const r=await other.callTool({name:'device_agent_delegate',arguments:{device_id:'B',goal:'goal',request_id:'r',current_model:'gpt-6-astra',current_reasoning_effort:'low',model_selection_confirmed:true}});assert.equal(r.isError,true);assert.equal(second.scheduler.list().length,0);}
  finally{await second.scheduler.close();await other.close();await host2.server.close();}
 });
 
@@ -120,7 +120,7 @@ test('journal lease rejects a second fleet process and can be reacquired after s
 
 test('provider failure pauses the phone and remains recoverable instead of silently failing over',async()=>{
  const f=setup();const scheduler=new FleetTaskScheduler(f.devices,f.journal,2,()=>({id:'codex',async sample(){throw Error('model unavailable');},cancel(){}}));await scheduler.initialize();
- try{const task=await scheduler.delegate('A','goal','r');await until(()=>scheduler.status(task.task_id).state==='RECOVERY_REQUIRED');assert.equal(f.agents.get('A').status,'PAUSED');assert.ok(scheduler.status(task.task_id).summary.includes('model unavailable'));
+ try{const task=await scheduler.delegate('A','goal','r');await until(()=>scheduler.status(task.task_id).state==='RECOVERY_REQUIRED');assert.equal(f.agents.get('A').status,'PAUSED');assert.ok(scheduler.status(task.task_id).summary.includes('推理失败'));
  }finally{await scheduler.close();}
 });
 

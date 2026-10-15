@@ -19,41 +19,34 @@ test('desktop Codex is discovered without requiring custom PATH configuration', 
  assert.equal(resolveCodexBinary({PATH:'/usr/local/bin'},'darwin',p=>p==='/usr/local/bin/codex'),'/usr/local/bin/codex');
 });
 
-test('phone owns loop/history; each native Codex session supplies one sample with real image', async () => {
- let status='RUNNING', sample=0, closed=0;
- const configs=[], inputs=[], submitted=[];
- const device={async agentRequest(op,args) {
-  if(op==='inference_submit') {submitted.push(args);sample++;if(sample===2)status='COMPLETED';return {ok:true};}
-  if(op==='pause') {status='PAUSED';return {ok:true};}
-  const agent={id:'child',goal:'phone-owned goal',inferenceSource:'controller',status,outcome:status==='COMPLETED'?{summary:'done'}:undefined};
-  return {ok:true,agent,requests:status==='RUNNING'?[{requestId:'sample-'+sample,purpose:'gui',tools:[tool],messages:[{role:'user',content:'phone-owned history '+sample},{role:'user',content:[{type:'image_url',image_url:{url:'data:image/png;base64,AQI='}}]}]}]:[]};
+test('phone owns history; persistent Codex thread replaces prior sample before the next decision', async () => {
+ let status='RUNNING',sample=0,closed=0,processes=0;
+ const configs=[],inputs=[],submitted=[],methods=[];
+ const device={async agentRequest(op,args){
+  if(op==='inference_submit'){submitted.push(args);sample++;if(sample===2)status='COMPLETED';return {ok:true};}
+  if(op==='pause'){status='PAUSED';return {ok:true};}
+  return {agent:{id:'child',goal:'goal',inferenceSource:'controller',status},requests:status==='RUNNING'?[{requestId:'r'+sample,purpose:'gui',tools:[tool],messages:[{role:'user',content:'phone-owned history '+sample},{role:'user',content:[{type:'image_url',image_url:{url:'data:image/png;base64,AQI='}}]}]}]:[]};
  }};
- const factory=()=>{
-  const n=inputs.length;
-  let isClosed=false;
-  const codex={onFailure:()=>{},onNotification:()=>{},onToolCall:()=>{},async initialize(){},close(){if(!isClosed)closed++;isClosed=true;},async request(method,params) {
-   if(method==='thread/start') {configs.push(params);return {thread:{id:'thread-'+n},model:'configured-model'};}
-   inputs.push(params.input);
-   queueMicrotask(async()=>{
-    if(n===0) await codex.onToolCall({threadId:'thread-'+n,callId:'call-1',tool:'observe_ui',arguments:{}});
-    else {codex.onNotification('item/completed',{threadId:'thread-'+n,item:{type:'agentMessage',text:'done'}});codex.onNotification('turn/completed',{threadId:'thread-'+n,turn:{status:'completed'}});}
-   });
-   return {turn:{status:'inProgress'}};
-  }};return codex;
- };
- const manager=new PhoneDelegation(device,new CodexInferenceProvider(factory));
- assert.ok(!('messages' in await manager.start('child')));
+ const factory=()=>{processes++;const c={onFailure(){},onNotification(){},onToolCall(){},async initialize(){},close(){closed++;},async request(method,params){
+  methods.push(method);
+  if(method==='account/rateLimits/read'||method==='config/read'||method==='thread/delete')return {};
+  if(method==='thread/start'){configs.push(params);return {thread:{id:'same-thread'},model:'configured-model'};}
+  if(method==='thread/revert'){assert.equal(params.beforeTurnId,'turn-0');return {thread:{id:'same-thread'}};}
+  if(method==='turn/interrupt')return {};
+  assert.equal(method,'turn/start');const n=inputs.length;inputs.push(params.input);
+  c.onNotification('turn/started',{threadId:'same-thread',turn:{id:'turn-'+n}});
+  queueMicrotask(()=>{c.onNotification('rawResponse/completed',{threadId:'same-thread',turnId:'turn-'+n,responseId:'response-'+n,usage:{inputTokens:10,outputTokens:1,totalTokens:11}});if(n===0)void c.onToolCall({threadId:'same-thread',turnId:'turn-0',callId:'call',tool:'observe_ui',arguments:{}});
+   else{c.onNotification('item/completed',{threadId:'same-thread',item:{type:'agentMessage',text:'done'}});c.onNotification('turn/completed',{threadId:'same-thread',turn:{id:'turn-1',status:'completed'}});}});
+  return {turn:{id:'turn-'+n}};
+ }};return c;};
+ const manager=new PhoneDelegation(device,new CodexInferenceProvider(factory));await manager.start('child');
  for(let i=0;i<100&&manager.status('child').state!=='COMPLETED';i++)await new Promise(r=>setTimeout(r,10));
- assert.equal(manager.status('child').state,'COMPLETED');assert.equal(closed,2);
- assert.equal(configs.length,2);
- for(const config of configs) {assert.equal(config.ephemeral,true);assert.equal(config.sandbox,'read-only');assert.deepEqual(config.dynamicTools.map(t=>t.name),['observe_ui']);}
- assert.ok(inputs[1][0].text.includes('phone-owned history 1'));
- assert.ok(!inputs[1][0].text.includes('"parameters"'));
- assert.ok(!inputs[1][0].text.includes('phone-owned history 0'));
- assert.equal(inputs[0][1].url,'data:image/png;base64,AQI=');
- assert.equal(submitted[0].response.tool_calls[0].function.name,'observe_ui');
- assert.deepEqual(submitted[1].response,{content:'done'});
- await manager.close();
+ assert.equal(manager.status('child').state,'COMPLETED');await manager.close();
+ assert.equal(processes,1);assert.equal(closed,1);assert.equal(configs.length,1);
+ assert.equal(configs[0].ephemeral,false);assert.equal(configs[0].historyMode,'paginated');
+ assert.equal(methods.filter(x=>x==='thread/revert').length,1);
+ assert.ok(inputs[1][0].text.includes('phone-owned history 1'));assert.ok(!inputs[1][0].text.includes('phone-owned history 0'));
+ assert.equal(inputs[0][1].url,'data:image/png;base64,AQI=');assert.equal(submitted[0].response.tool_calls[0].function.name,'observe_ui');
 });
 
 test('steering or pause invalidates native inference without submitting an old decision', async()=>{
@@ -72,7 +65,7 @@ test('expired phone deadline cancels a stuck Codex bootstrap and closes the proc
 test('steering during thread creation aborts bootstrap without waiting for RPC timeout', async()=>{
  let closed=0,turnStarted=0,threadRequested=false;
  const provider=new CodexInferenceProvider(()=>({onFailure:()=>{},onNotification:()=>{},onToolCall:()=>{},async initialize(){},
-  request(method){if(method==='thread/start'){threadRequested=true;return new Promise(()=>{});}turnStarted++;return Promise.resolve({});},close(){closed++;}}));
+  request(method){if(method==='account/rateLimits/read'||method==='config/read')return Promise.resolve({});if(method==='thread/start'){threadRequested=true;return new Promise(()=>{});}turnStarted++;return Promise.resolve({});},close(){closed++;}}));
  await assert.rejects(provider.sample({requestId:'old',messages:[],tools:[]},'/tmp',{agent_id:'a'},async()=>false),SampleInvalidated);
  assert.equal(threadRequested,true);assert.equal(closed,1);assert.equal(turnStarted,0);
 });
@@ -85,6 +78,7 @@ test('paused bridge stays attached and phone resume triggers fresh inference wit
   return {agent:{id:'a',goal:'observe',inferenceSource:'controller',status},requests:status==='RUNNING'?[{requestId:'r'+generation,messages:[],tools:[]}]:[]};
  }};
  const factory=()=>{const n=processes++;const c={onFailure:()=>{},onNotification:()=>{},onToolCall:()=>{},async initialize(){},close(){},async request(method){
+  if(method==='account/rateLimits/read'||method==='config/read')return {};
   if(method==='thread/start')return {thread:{id:'t'+n}};
   if(n===0){status='PAUSED';generation++;}
   else queueMicrotask(()=>{c.onNotification('item/completed',{item:{type:'agentMessage',text:'done'}});c.onNotification('turn/completed',{turn:{status:'completed'}});});
@@ -146,4 +140,29 @@ test('phone sampling disables arbitrary inherited MCP names without touching use
  assert.deepEqual(JSON.parse(JSON.stringify(parse(args[1]).mcp_servers)), { huahua:{enabled:false}, 'other-tools':{enabled:false}, project_tool:{enabled:false} });
  assert.throws(()=>disabledMcpOverrides(['[broken']));
  assert.deepEqual(JSON.parse(JSON.stringify(parse(disabledMcpOverrides(['[mcp_servers."name.with.dots"]\ncommand = "tool"'])[1]).mcp_servers)), {'name.with.dots':{enabled:false}});
+});
+
+test('provider 429 is delivered to the exact phone request, without an ordinary pause or stale action replay',async()=>{
+ const ops=[];let status='RUNNING';
+ const device={async agentRequest(op,args){ops.push({op,args});
+  if(op==='inference_fail'){assert.equal(args.request_id,'sample');assert.equal(args.error_code,'rate_limit');status='FAILED';return {ok:true};}
+  return {agent:{id:'a',goal:'goal',status,inferenceSource:'controller'},requests:[{requestId:'sample',messages:[],tools:[]}]};
+ }};
+ const bridge=new PhoneDelegation(device,{id:'codex',async sample(){throw Error('exceeded retry limit, last status: 429 Too Many Requests');},cancel(){}});
+ await bridge.start('a');
+ for(let i=0;i<100&&bridge.isAttached('a');i++)await new Promise(r=>setTimeout(r,10));
+ assert.equal(bridge.status('a').error_delivery,'accepted');assert.equal(bridge.status('a').error.code,'rate_limit');
+ assert.ok(bridge.status('a').summary.includes('不代表额度用完'));
+ assert.equal(ops.some(x=>x.op==='pause'||x.op==='inference_submit'),false);
+ await bridge.close();
+});
+
+test('provider error for a steered-away request cannot fail or pause the replacement task input',async()=>{
+ let generation=0,status='RUNNING',samples=0;const operations=[];
+ const device={async agentRequest(op,args){operations.push(op);if(op==='inference_submit'){assert.equal(args.request_id,'r1');status='COMPLETED';return {ok:true};}
+  return {agent:{id:'a',goal:'goal',inferenceSource:'controller',status},requests:status==='RUNNING'?[{requestId:'r'+generation,messages:[],tools:[]}]:[]};}};
+ const bridge=new PhoneDelegation(device,{id:'codex',async sample(){if(samples++===0){generation++;throw Error('429');}return {content:'done'};},cancel(){}});
+ await bridge.start('a');for(let i=0;i<100&&bridge.isAttached('a');i++)await new Promise(r=>setTimeout(r,10));
+ assert.equal(bridge.status('a').state,'COMPLETED');assert.equal(operations.includes('inference_fail'),false);assert.equal(operations.includes('pause'),false);
+ await bridge.close();
 });

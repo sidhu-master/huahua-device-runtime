@@ -1,3 +1,4 @@
+import type { PhoneModelSelection } from './phone-model-selection.js';
 import { randomUUID } from 'node:crypto';
 import { PhoneDelegation, type PhoneChildState } from './phone-delegation.js';
 import { CodexInferenceProvider } from './codex-inference-provider.js';
@@ -7,7 +8,7 @@ import type { FleetJournal } from './fleet-task-journal.js';
 import { FleetInferenceLimit } from './fleet-inference-limit.js';
 
 export type FleetTask = { task_id: string; device_id: string; request_id: string; goal: string; state: string;
-  phone_agent_id?: string; summary?: string; worker?: PhoneChildState; created_at_ms: number; updated_at_ms: number };
+  model_selection?: PhoneModelSelection; phone_agent_id?: string; summary?: string; worker?: PhoneChildState; created_at_ms: number; updated_at_ms: number };
 const terminal = new Set(['COMPLETED', 'FAILED', 'CANCELLED']);
 const suspended = new Set(['PAUSED', 'WAITING_HUMAN', 'RECOVERY_REQUIRED']);
 type Devices = { get(id: string): Promise<ResilientDeviceSession> };
@@ -48,24 +49,28 @@ export class FleetTaskScheduler {
   }
   list(ids?: string[]) { return [...this.tasks.values()].filter(t => !ids || ids.includes(t.task_id)).map(t => structuredClone(t)); }
   status(id: string) { const t = this.tasks.get(id); if (!t) throw new Error('Unknown task_id'); return structuredClone(t); }
-  async delegate(deviceId: string, goal: string, requestId: string) {
+  async delegate(deviceId: string, goal: string, requestId: string, selection?: PhoneModelSelection) {
     return this.serial(async () => {
       if (this.closed) throw new Error('MCP connection closed');
       await this.devices.get(deviceId); // validates authorization before any task side effect
       const existing = [...this.tasks.values()].find(t => t.device_id === deviceId && t.request_id === requestId);
-      if (existing) { if (existing.goal !== goal) throw new Error('request_id conflict'); return this.status(existing.task_id); }
+      if (existing) { if (existing.goal !== goal || JSON.stringify(existing.model_selection) !== JSON.stringify(selection)) throw new Error('request_id conflict'); return this.status(existing.task_id); }
       const now = Date.now();
-      const task: FleetTask = { task_id: randomUUID(), device_id: deviceId, goal, request_id: requestId, state: 'QUEUED', created_at_ms: now, updated_at_ms: now };
+      const task: FleetTask = { task_id: randomUUID(), device_id: deviceId, goal, model_selection: selection, request_id: requestId, state: 'QUEUED', created_at_ms: now, updated_at_ms: now };
       this.tasks.set(task.task_id, task);
       try { await this.persist(); } catch (error) { this.tasks.delete(task.task_id); throw error; }
       return this.status(task.task_id);
     });
   }
-  async control(id: string, op: 'send'|'pause'|'resume'|'interrupt', text?: string) {
+  async control(id: string, op: 'send'|'pause'|'resume'|'interrupt', text?: string, selection?: PhoneModelSelection) {
     return this.serial(async () => {
       const task = this.tasks.get(id); if (!task) throw new Error('Unknown task_id');
       if (this.closed) throw new Error('MCP connection closed');
       if (terminal.has(task.state)) throw new Error('Task already terminal');
+      if (selection) {
+        if (task.model_selection && JSON.stringify(task.model_selection) !== JSON.stringify(selection)) throw new Error('不能更改已有任务的模型设置，请创建新任务。');
+        task.model_selection = selection;
+      }
       if (this.executions.size && task.state === 'STARTING') throw new Error('Task starting; read status before controlling');
       if (!task.phone_agent_id) {
         if (op === 'interrupt') task.state = 'CANCELLED';
@@ -96,7 +101,7 @@ export class FleetTaskScheduler {
     if (this.bridges.has(task.task_id)) return;
     const bridge = new PhoneDelegation(device, this.inferenceLimit.wrap(this.providerFactory()));
     this.bridges.set(task.task_id, bridge);
-    try { await bridge.start(task.phone_agent_id!); }
+    try { await bridge.start(task.phone_agent_id!, task.model_selection); }
     catch (e) { this.bridges.delete(task.task_id); await bridge.close(); throw e; }
   }
   private async tick() {

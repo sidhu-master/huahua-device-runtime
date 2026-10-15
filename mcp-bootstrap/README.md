@@ -210,13 +210,13 @@ Run the phone task in a dedicated Codex child context with only its goal. Model-
 
 ### Automatic native Codex inference bridge
 
-Use `device_agent_delegate` to submit a small goal and `device_agent_worker_status` for compact progress/outcome. The original paired connection is reused. The phone owns the only persistent agent loop/history; MCP supplies each sample using a fresh ephemeral native Codex app-server session with the phone's registered tools and actual images, captures one decision, closes the sampling session, and submits to the phone. No main conversation is inherited and no second desktop task loop is retained. Never mix manual decisions/raw device actions with an active bridge.
+Use `device_agent_delegate` to submit a small goal and `device_agent_worker_status` for compact progress/outcome. The original paired connection is reused. The phone owns the only persistent agent loop/history; MCP reuses a native Codex app-server process/thread per phone child and purpose, with the phone's registered tools and actual images. Before the next decision it uses upstream thread/revert to remove the previous native turn, then supplies the phone's authoritative projected history and captures one decision. Internal transport threads use paginated history and are deleted on normal child completion/cancellation. No main conversation is inherited and no second desktop task loop is retained. Never mix manual decisions/raw device actions with an active bridge.
 
 The bridge uses the installed `codex` executable and existing login/model configuration. It does not edit global Codex settings or require additional model credentials. On macOS it adopts the system HTTPS proxy when proxy environment variables are absent. Pauses, steering, handoff and disconnect invalidate pending samples; submissions never automatically replay. Initialization overhead and cache reuse require measurement. Changes are local until this MCP package is published.
 
 Pausing stops native inference while keeping the transport attached; resuming on the phone automatically supplies a fresh sample. Server instructions advertise this flow as the default, and manual `device_agent_reply` is rejected for attached tasks. These behaviors are inside MCP/App, not global Codex settings or conversation memory.
 
-The first release targets Codex only. The phone retains its GUI loop and authoritative context; each model decision uses a fresh ephemeral app-server thread, without a desktop conversation or a parent model coordinating each step. Other host adapters remain experimental and are not selected automatically. The disposable Codex process disables plugins, Apps and recommended plugin context through upstream feature overrides; no global settings are changed. `device_agent_worker_status` includes `last_bootstrap_ms` (initialization/thread/context preparation after process construction), `last_model_ms` (turn start through decision), and total `last_sample_ms`; these exclude phone action execution. Phone deadlines and invalidation also abort stalled initialization/thread-start RPCs, so pausing or steering does not wait for an unrelated RPC timeout.
+The first release targets Codex only. The phone retains its GUI loop and authoritative context; each model decision uses a reused, history-replaced app-server thread, without inheriting a desktop conversation or a parent model coordinating each step. GUI and compaction have separate sessions; schema/model changes create a new isolated session. Revert failure stops sampling rather than appending duplicate history. Other host adapters remain experimental and are not selected automatically. The phone sampling Codex process disables plugins, Apps and recommended plugin context through upstream feature overrides; no global settings are changed. `device_agent_worker_status` includes `last_bootstrap_ms` (initialization/thread/context preparation after process construction), `last_model_ms` (turn start through decision), and total `last_sample_ms`; these exclude phone action execution. Phone deadlines and invalidation also abort stalled initialization/thread-start RPCs, so pausing or steering does not wait for an unrelated RPC timeout.
 
 ### Host compatibility
 
@@ -254,3 +254,58 @@ Two-device routing, concurrent execution, same-phone queuing, cancellation and r
 ### 0.3.0 release validation
 
 Validated fleet routing and independent pause/resume with two real phones, plus native Codex initialization and a real phone vision loop after process-scoped MCP isolation. Tests cover inherited MCP names (including dotted names), offline startup, FIFO admission, recovery identity and cancellation. Packaging rebuilds dist; publishing runs tests. Only Codex native inference is verified; other host adapters are experimental and must not silently select Codex.
+
+### 手机任务模型选择（0.4.0）
+
+单机与多机 `device_agent_delegate` 默认 `model_source=current`。MCP 标准握手不包含当前聊天的模型/推理强度；调用方必须传入已知的 `current_model` 与 `current_reasoning_effort`，不可猜测或读取其他会话历史。仅传两个配置值，不传主会话内容。参数只作用于该手机任务，多机任务分别持久化选择。
+
+- `choose_model=true`：通过标准 `elicitation/create` 表单询问用户，模型来源默认当前会话；取消不启动任务。
+- 宿主未声明 `elicitation.form` 且未提供完整设置：返回 `MODEL_SELECTION_REQUIRED`，由宿主在聊天中询问并重试，不静默借用 CLI 默认模型。
+- 指定其他模型：`model_source=custom`、`model`、`reasoning_effort`。
+- app-server 的 `thread/start.model`、`config.model_reasoning_effort` 和 `turn/start.model/effort` 都显式设置，并核对 `thread/start` 实际返回的模型与强度；不匹配停止。
+- `model_selection` 是请求值及来源，`model`、`reasoning_effort` 是实际启动返回值。选择成功不代表账号仍有推理额度。
+- 已运行任务的设置固定；变更设置应停止旧任务后新建任务。重试 `request_id` 必须保持设备、目标与模型选择一致。
+
+此功能无需修改 Codex 全局配置。当前 MCP 无法保证自动得知桌面聊天中途更换的模型；需宿主传参或用户表单确认。真实 Codex 表单展示仍需客户端验证，标准 MCP 链路已由内存传输集成测试覆盖。
+
+模型选择表单包含“当前会话”“Astra + 轻度（推荐）”“其他模型”。默认仍是当前会话；推荐项无需填写模型 ID/强度，固定映射为 `gpt-6-astra` + `low`，也可通过 `model_source=astra_low` 直接选择。此快捷选项是产品推荐，不代表其他模型不可用。任务记录中推荐项归为 `custom` 来源，实际模型与强度仍由原生启动响应核验。
+
+首次下达手机任务时，即使宿主提供了当前会话设置，也先询问用户选择；用户取消或未选择时不启动手机任务。确认后的选择在当前 MCP 连接内复用，后续命令无需反复选择，`choose_model=true` 可以重新选择。宿主不支持表单时，先返回待选择状态，在聊天中询问用户；用户实际确认后再以 `model_selection_confirmed=true` 重试。不得由调用模型自行假定用户已确认。
+
+2026-10-14 本地真机验证：本地 stdio MCP 沿用已有 Pixel 授权，首个委派先发送 `elicitation/create`，用户通过聊天选择桥接选中“Astra + 轻度（推荐）”，随后回传真实 MCP 接受响应再创建手机任务。worker 实际返回 `gpt-6-astra` / `low`，完成 5 轮推理与 5 次工具调用后遭供应商 429；搜索任务未完成，测试任务已取消以释放占位。此证据验证协议及模型生效，不等同于 Codex 原生表单视觉展示已验收。
+
+### 推理失败上报
+
+手机支持 `inference_fail(agent_id, request_id, error_code)` 后，MCP 推理失败会回传到当前手机采样，使手机结束任务并显示中文原因，清除旧动作、保存当前会话失败记录。429 与明确的额度耗尽分别分类，worker 状态保留非敏感的 `error` 和 `error_delivery`。错误回执绑定真实待决请求；引导或暂停已使请求失效时，不得再将旧错误发给新请求。旧客户端不支持失败回执或连接不可用时仅尝试安全暂停，并标记回执未送达。2026-10-14 本地正常 release Pixel 验证：注入 429，回执 accepted、手机 FAILED、小悬浮窗和半屏正确展示错误；MCP 74 项测试通过。
+
+### 上下文消耗诊断
+
+MCP worker 提供 `context_stats`（消息数、模型文本字节、图片数、工具定义字节）与 app-server `thread/tokenUsage/updated` 提供的本轮 `token_usage`；不记录正文、截图、手机号或密钥。历史版本没有保存逐轮实际 token，因此不能反推图片真实扣费比例。模型输入排除传输 requestId/agentId/deadline，保留手机策略、用户目标、完整 call/output 配对与真实图片。捕获动态工具决策后，不回传虚构的执行成功；关闭一次性采样进程，避免独立 Codex 会话拿到假回执后继续推理。
+
+2026-10-14 对小红书测试的历史压缩输入截面（非前几轮累计实际 token）按 UTF-8 字节分析：总计 61,094 字节；视图树 41,540（约 68.0%），状态/动作/回执 6,633（10.9%），开发者策略/记忆 3,040（5.0%），用户目标 714（1.2%），历史图片占位 725（1.2%），其余 JSON 包装/转义约 8,442（13.8%）。不含当前视觉图、GUI 工具定义与 Codex 内置指令；该压缩请求本身没有真实图片。历史树的 ref/bounds/depth 约 20,768 字节，应优先优化，但不能丢弃观察到的文字事实。诊断通过仅捕获采样请求再暂停实现，未调用模型。小红书任务保持暂停。
+
+### 手机推理额度审计
+
+MCP 自动在 `~/.config/huahua-mcp/phone-sample-audit.jsonl` 写入每轮采样诊断（权限 0600，超过 8 MiB 后保留约 4 MiB 最近记录）。记录请求/agent 的哈希、实际模型和推理强度、速度配置、原生 turn 数、usage 更新、错误/重试通知数、内容分类字节、图片数与调用前后各限额桶。不会记录提示词、截图、工具参数、凭证或原始账户 ID。审计写入失败只标记 `audit_log_error`，不重试模型。
+
+usage 可能晚于 turn/interrupt 应答，收尾最多等待 1 秒；仍收不到时明确 `usage_status=unavailable`、`usage=null`，不得视为零消耗。限额为账户共享的整数百分比，可能异步结算；主 Codex 会话也使用同一额度，不能将两条用户命令等同于两次模型调用，或将前后差值直接当手机独占精确费用。
+
+### 当前屏幕与缓存关联（2026-10-15）
+
+Android 模型投影只保留最新 observation_id 的一份简化 ui_tree，与当前图片生命周期一致；旧 observation 的整棵树及重复当前树从模型输入移除，不再只删几何字段。原始历史不改写，配对工具回执、显式采集事实和任务账本继续保留。简化仍复用 SemanticUiSnapshotProjector，未额外裁掉当前屏幕控件。
+
+采样使用官方 thread/start(historyMode=paginated) + thread/revert(beforeTurnId) + turn/start，保持同一 thread/session 缓存关联，避免追加第二份桌面历史。MCP 只管理自己创建的内部传输线程，不修改当前 Codex 聊天或全局配置。缓存是否命中仍由供应商决定；固定输入验收与真实 GUI 验收分别报告，不保证每轮固定命中率。
+
+用量收尾补充：当前 Codex 适配器启用线程级 experimentalRawEvents，读取 rawResponse/completed 的纯数值用量。工具决策到达后先有界等待上游响应完成，再 interrupt，避免 TokenCount 尚未发出时提前截断。按 response ID 去重，不保存 raw item、提示词或 usage_metadata；thread/tokenUsage/updated 仅作 fallback。该事件为 Codex 原生实验协议能力，封装在适配器内，不要求用户配置。
+
+性能诊断补充：采样进程不再逐轮调用 account/rateLimits/read。该 RPC 可能访问远端网络；本地超时并不取消上游工作，不能为统计阻塞手机操作。限额改为记录 account/rateLimits/updated 的流式快照，复用上一快照时保留原时间戳，quota_source=stream_event；不是精确的逐轮结算结果。需要账户总量对照时，在执行路径外读取。配置仅初始化时读取，审计新增 phase_ms（初始化、配置、线程准备、模型到决策、用量等待、中断、提交与总时长），继续收集 rawResponse/completed 实际 token。
+
+### 0.4.0 release
+
+- 首次手机任务通过标准 MCP 表单或聊天确认模型；支持当前会话、自定义模型与 Astra low 快捷项，核验实际模型/档位。
+- 每台手机的 GUI/压缩采样分别复用原生 Codex 线程，使用官方分页历史回退避免上下文重复叠加；正常结束/取消清理内部线程。依赖支持 thread/revert/historyMode=paginated 的新版 Codex。
+- 按单次 Responses 完成事件记录真实 token，缓存计数去重；错误按当前请求回传手机，区分 429 与额度耗尽。配合最新 Android 客户端可显示中文失败状态。
+- 移除每轮串行额度网络查询，增加阶段耗时与有界、脱敏的本地审计日志；不修改用户 Codex 全局配置。
+- Android 当前视图树投影需使用已更新客户端；MCP 更新不能替代 APK 更新。真实小红书 Sol low 五轮已验证同一线程及当前一份树。
+
+发布检查：MCP 单测、清洁 dist 重建、npm tarball 文件/敏感信息检查，以及安装后的 CLI/MCP 握手验证。其他客户端自动推理后端仍不属于本次稳定支持范围。

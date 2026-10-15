@@ -102,7 +102,7 @@ export class HuahuaLanClient {
   }
   /** Existing trusted LAN transport; credentials never enter model-visible results. */
   async agentRequest(session: DeviceSession, operation: string, args: Record<string, unknown>): Promise<Record<string, any>> {
-    if (!["list", "start", "read", "events", "send", "pause", "resume", "interrupt", "inference_read", "inference_submit"].includes(operation)) throw new Error("Unknown agent operation");
+    if (!["list", "start", "read", "events", "send", "pause", "resume", "interrupt", "inference_read", "inference_submit", "inference_fail"].includes(operation)) throw new Error("Unknown agent operation");
     return this.json(await this.fetchImpl(`${session.card.endpoint}/v4/agents/${operation}`, {
       method: "POST",
       headers: { "content-type": "application/json", authorization: `Bearer ${session.accessToken}` },

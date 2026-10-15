@@ -22,6 +22,11 @@ export class CodexAppServer {
   constructor(binary = resolveCodexBinary()) {
     this.child = spawn(binary, ['app-server', '--listen', 'stdio://',
       '-c', 'features.shell_tool=false',
+      '-c', 'skills.include_instructions=false',
+      '-c', 'include_apps_instructions=false',
+      '-c', 'include_collaboration_mode_instructions=false',
+      '-c', 'include_environment_context=false',
+      '-c', 'include_permissions_instructions=false',
       '-c', 'features.multi_agent=false',
       '-c', 'features.plugins=false',
       '-c', 'features.apps=false',

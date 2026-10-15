@@ -1,3 +1,6 @@
+import { appendSampleAudit, type PhoneSampleAudit } from './phone-sample-audit.js';
+import type { phoneSampleContext } from './phone-sample-context.js';
+import { inferenceFailure } from './phone-inference-error.js';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { mkdtemp, rm } from 'node:fs/promises';
@@ -5,11 +8,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { SampleInvalidated, selectInferenceProvider, type PhoneInferenceProvider } from './phone-inference-provider.js';
 import { ResilientDeviceSession } from './resilient-device-session.js';
+import { modelSelectionSchema, PhoneModelSelector, type PhoneModelSelection } from './phone-model-selection.js';
 import { CodexInferenceProvider } from './codex-inference-provider.js';
 
-export type PhoneChildState = { agent_id: string; state: string; inference_provider?: string; thread_id?: string; model?: string; summary?: string; tools: number; samples?: number; last_sample_ms?: number; last_bootstrap_ms?: number; last_model_ms?: number; last_event?: string; updated_at_ms: number };
+export type PhoneChildState = { agent_id: string; state: string; inference_provider?: string; thread_id?: string; model?: string; reasoning_effort?: string; model_selection?: PhoneModelSelection; summary?: string; context_stats?: ReturnType<typeof phoneSampleContext>['stats']; sample_metrics?: { purpose: string; context: ReturnType<typeof phoneSampleContext>['stats'] | undefined; usage?: Record<string, number>; duration_ms: number; accepted: boolean }[]; token_usage?: Record<string, number>; error?: ReturnType<typeof inferenceFailure>; error_delivery?: 'accepted' | 'unavailable'; tools: number; samples?: number; last_sample_ms?: number; last_bootstrap_ms?: number; last_model_ms?: number; last_event?: string; updated_at_ms: number; sample_audit?: PhoneSampleAudit; audit_log_error?: boolean };
 
-/** Phone owns the only task loop/history. A disposable native Codex session supplies one decision. */
+/** Phone owns the only task loop/history. A reused, history-replaced native Codex session supplies one decision. */
 export class PhoneDelegation {
   private workers = new Map<string, PhoneChildState>();
   private running = new Set<string>();
@@ -18,19 +22,19 @@ export class PhoneDelegation {
   constructor(private device: ResilientDeviceSession, private provider: PhoneInferenceProvider = new CodexInferenceProvider()) {}
   status(agentId: string) { return this.workers.get(agentId); }
   isAttached(agentId: string) { return this.running.has(agentId); }
-  async start(agentId: string): Promise<PhoneChildState> {
+  async start(agentId: string, selection?: PhoneModelSelection): Promise<PhoneChildState> {
     if (this.disposed) throw new Error('MCP connection closed');
     if (this.running.has(agentId)) return this.workers.get(agentId)!;
     const payload = await this.device.agentRequest('read', { agent_id: agentId });
     if (payload.agent.inferenceSource !== 'controller') throw new Error('Phone task does not use controller inference');
     if (payload.agent.status !== 'RUNNING' && payload.agent.status !== 'QUEUED') throw new Error('Resume the phone task before attaching its Codex worker');
-    const state: PhoneChildState = { agent_id: agentId, state: 'STARTING', inference_provider: this.provider.id, tools: 0, updated_at_ms: Date.now() };
+    const state: PhoneChildState = { agent_id: agentId, state: 'STARTING', inference_provider: this.provider.id, model_selection: selection, tools: 0, updated_at_ms: Date.now() };
     this.workers.set(agentId, state); this.running.add(agentId);
     const task = this.run(state, payload.agent.goal).catch(async error => {
       if (this.disposed) { state.state = 'PAUSED'; return; }
-      state.state = 'FAILED'; state.summary = error instanceof Error ? error.message : 'Codex child failed';
+      state.state = 'FAILED'; state.error = inferenceFailure(error); state.summary = state.error.message;
       // Connection/model failure must not silently switch model or keep an unserved phone task running.
-      try { await this.device.agentRequest('pause', { agent_id: agentId }); } catch {}
+      if (state.error_delivery !== 'accepted') { try { await this.device.agentRequest('pause', { agent_id: agentId }); } catch {} }
     }).finally(() => { this.running.delete(agentId); this.tasks.delete(agentId); state.updated_at_ms = Date.now(); });
     this.tasks.set(agentId, task);
     return state;
@@ -63,6 +67,8 @@ export class PhoneDelegation {
         if (!request) { await new Promise(resolve => setTimeout(resolve, 200)); continue; }
         state.state = 'RUNNING';
         const sampleStarted = Date.now();
+        let accepted = false;
+        state.context_stats = undefined; state.token_usage = undefined; state.sample_audit = undefined;
         try {
           const decision = await this.provider.sample(request, cwd, state, async () => {
             const current = await this.device.agentRequest('inference_read', { agent_id: state.agent_id });
@@ -70,6 +76,7 @@ export class PhoneDelegation {
           });
           // Read and submit remain scoped to the original authenticated host/session.
           // Steering invalidates requestId on the phone; never replay a stale decision.
+          const submitStarted = Date.now();
           try {
             await this.device.agentRequest('inference_submit', { agent_id: state.agent_id, request_id: request.requestId, response: decision });
           } catch (error) {
@@ -77,18 +84,43 @@ export class PhoneDelegation {
             if (current.agent.status !== 'RUNNING' || !current.requests?.some((r: any) => r.requestId === request.requestId)) throw new SampleInvalidated('Phone rejected an invalidated decision');
             throw error;
           }
+          if (state.sample_audit) (state.sample_audit as PhoneSampleAudit).phase_ms.submit = Date.now() - submitStarted;
+          accepted = true;
           consumed = request.requestId; state.tools += decision.tool_calls?.length ?? 0;
           state.samples = (state.samples ?? 0) + 1; state.last_sample_ms = Date.now() - sampleStarted;
         } catch (error) {
-          if (!(error instanceof SampleInvalidated)) throw error;
+          if (!(error instanceof SampleInvalidated)) {
+            const failure = inferenceFailure(error);
+            // Steering/pause may have invalidated this request while the provider failed.
+            const current = await this.device.agentRequest('inference_read', { agent_id: state.agent_id });
+            if (current.agent.status !== 'RUNNING' || !current.requests?.some((r: any) => r.requestId === request.requestId)) continue;
+            try {
+              const receipt = await this.device.agentRequest('inference_fail', { agent_id: state.agent_id, request_id: request.requestId, error_code: failure.code });
+              if (receipt.ok !== true) throw new Error('Phone did not acknowledge inference failure');
+              state.error_delivery = 'accepted';
+            } catch { state.error_delivery = 'unavailable'; }
+            throw error;
+          }
+        } finally {
+          state.sample_metrics ??= [];
+          state.sample_metrics.push({ purpose: request.purpose, context: state.context_stats,
+            usage: state.token_usage, duration_ms: Date.now() - sampleStarted, accepted });
+          const audit = state.sample_audit as PhoneSampleAudit | undefined;
+          if (audit) {
+            try { await appendSampleAudit({ schema: 1, ...audit, finished_at_ms: Date.now(), purpose: request.purpose === 'compaction' ? 'compaction' : 'gui',
+              model: state.model, effort: state.reasoning_effort, context: state.context_stats, usage: state.token_usage ?? null, accepted }); }
+            catch { state.audit_log_error = true; }
+          }
+          if (state.sample_metrics.length > 128) state.sample_metrics.shift();
         }
       }
-    } finally { await rm(cwd, { recursive: true, force: true }); }
+    } finally { this.provider.cancel(state.agent_id); await rm(cwd, { recursive: true, force: true }); }
   }
 }
 
 export function registerPhoneDelegationTools(server: McpServer, device: ResilientDeviceSession) {
   const delegation = new PhoneDelegation(device);
+  const modelSelector = new PhoneModelSelector();
   server.tool('device_agent_inference_capabilities', 'Read actual host handshake and supported automatic inference backends. Connecting MCP tools does not imply host sampling support. No model credentials are returned.', {}, async () => {
     const host = server.server.getClientVersion();
     const capabilities = server.server.getClientCapabilities();
@@ -98,13 +130,18 @@ export function registerPhoneDelegationTools(server: McpServer, device: Resilien
       client_sampling_declared: capabilities?.sampling ?? null, generic_manual_protocol: true }) }] };
   });
   server.tool('device_agent_delegate', 'Delegate a small goal to a phone-owned child using the verified matching host inference adapter. Currently Codex is supported; other hosts must not silently borrow Codex. No main conversation is shared. Root receives only status/result. Use goal+request_id for a new task, or agent_id to attach to an already resumed controller task. Do not manually send per-step decisions while the worker is active.', {
+    ...modelSelectionSchema,
     goal: z.string().min(1).max(8000).optional(), request_id: z.string().min(1).max(128).optional(), agent_id: z.string().min(1).optional(),
     inference_provider: z.enum(['auto', 'codex']).default('auto').describe('auto uses a verified matching host adapter; codex explicitly selects Codex, only when the user requests that backend. Never select Codex on behalf of a Claude/WorkBuddy user.'),
-  }, async ({ goal, request_id, agent_id, inference_provider }) => {
+  }, async (args) => {
+    const { goal, request_id, agent_id, inference_provider } = args;
     selectInferenceProvider(server.server.getClientVersion()?.name, inference_provider);
     if (agent_id && (goal || request_id) || !agent_id && (!goal || !request_id)) throw new Error('Supply agent_id or goal+request_id');
+    if (agent_id && delegation.isAttached(agent_id)) return { content: [{ type: 'text' as const, text: JSON.stringify(delegation.status(agent_id)) }] };
+    const resolved = await modelSelector.resolve(server, args);
+    if (!('selection' in resolved)) return { content: [{ type: 'text' as const, text: JSON.stringify(resolved) }] };
     const id = agent_id ?? (await device.agentRequest('start', { goal, request_id, inference_source: 'controller' })).agent.id;
-    return { content: [{ type: 'text' as const, text: JSON.stringify(await delegation.start(id)) }] };
+    return { content: [{ type: 'text' as const, text: JSON.stringify(await delegation.start(id, resolved.selection)) }] };
   });
   server.tool('device_agent_worker_status', 'Read compact phone inference bridge status/outcome; never returns its screen, tool history or model sampling context.', { agent_id: z.string().min(1) }, async ({ agent_id }) => ({
     content: [{ type: 'text' as const, text: JSON.stringify(delegation.status(agent_id) ?? { agent_id, state: 'NOT_ATTACHED' }) }],
